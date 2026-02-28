@@ -7,21 +7,26 @@
 
 ## Table of Contents
 
-1. [System Overview](#1-system-overview)
-2. [Layer Architecture](#2-layer-architecture)
-3. [Package Structure](#3-package-structure)
-4. [Class Diagram](#4-class-diagram)
-5. [Data Models](#5-data-models)
-6. [Error Hierarchy](#6-error-hierarchy)
-7. [Configuration Flow](#7-configuration-flow)
-8. [Config Merging](#8-config-merging)
-9. [Skill Discovery Flow](#9-skill-discovery-flow)
-10. [Skill Lifecycle](#10-skill-lifecycle)
-11. [Blueprint Execution Flow](#11-blueprint-execution-flow)
-12. [CLI Command Flow](#12-cli-command-flow)
-13. [Plugin Architecture](#13-plugin-architecture)
-14. [Component Interaction Matrix](#14-component-interaction-matrix)
-15. [Key Design Decisions](#15-key-design-decisions)
+- [NeuroCore Architecture](#neurocore-architecture)
+  - [Table of Contents](#table-of-contents)
+  - [1. System Overview](#1-system-overview)
+  - [2. Layer Architecture](#2-layer-architecture)
+  - [3. Package Structure](#3-package-structure)
+  - [4. Class Diagram](#4-class-diagram)
+  - [5. Data Models](#5-data-models)
+    - [5.1 Blueprint Model](#51-blueprint-model)
+    - [5.2 Configuration Model](#52-configuration-model)
+    - [5.3 SkillMeta](#53-skillmeta)
+  - [6. Error Hierarchy](#6-error-hierarchy)
+  - [7. Configuration Flow](#7-configuration-flow)
+  - [8. Config Merging](#8-config-merging)
+  - [9. Skill Discovery Flow](#9-skill-discovery-flow)
+  - [10. Skill Lifecycle](#10-skill-lifecycle)
+  - [11. Blueprint Execution Flow](#11-blueprint-execution-flow)
+  - [12. CLI Command Flow](#12-cli-command-flow)
+  - [13. Plugin Architecture](#13-plugin-architecture)
+  - [14. Component Interaction Matrix](#14-component-interaction-matrix)
+  - [15. Key Design Decisions](#15-key-design-decisions)
 
 ---
 
@@ -448,7 +453,7 @@ classDiagram
         +requires: list~str~ = []
         +provides: list~str~ = []
         +consumes: list~str~ = []
-        +config_schema: dict~str, Any~ = {}
+        +config_schema: dict~str, Any~ =
         +tags: list~str~ = []
     }
 
@@ -670,7 +675,7 @@ sequenceDiagram
     participant load_blueprint
     participant execute_bp as execute_blueprint
     participant validate_bp as validate_blueprint
-    participant create as _create_skill_instances
+    participant createX as _create_skill_instances
     participant merge as merge_skill_config
     participant build as _build_flow_config
     participant FE as FlowEngine
@@ -692,16 +697,16 @@ sequenceDiagram
     execute_bp->>validate_bp: blueprint, registry
     validate_bp-->>execute_bp: errors[] (empty if valid)
 
-    execute_bp->>create: blueprint, registry, config
+    execute_bp->>createX: blueprint, registry, config
     loop each BlueprintComponent
-        create->>create: registry.get(comp.type) → Skill class
-        create->>Skill: skill_cls(name=comp.name)
-        create->>merge: neurocore_config, comp.type, comp.config
-        merge-->>create: merged config dict
-        create->>Skill: init(merged_config)
-        create->>Skill: validate_config()
+        createX->>createX: registry.get(comp.type) → Skill class
+        createX->>Skill: skill_cls(name=comp.name)
+        createX->>merge: neurocore_config, comp.type, comp.config
+        merge-->>createX: merged config dict
+        createX->>Skill: init(merged_config)
+        createX->>Skill: validate_config()
     end
-    create-->>execute_bp: instances dict, merged_configs dict
+    createX-->>execute_bp: instances dict, merged_configs dict
 
     execute_bp->>build: blueprint, merged_configs
     build-->>execute_bp: FlowConfig
