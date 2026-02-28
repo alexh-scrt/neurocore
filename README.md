@@ -2,7 +2,7 @@
 
 **Pluggable, YAML-driven framework for building agentic AI applications.**
 
-NeuroCore is the chassis for agentic AI. It wires together workflow orchestration, discoverable skills, structured configuration, and a developer-friendly CLI — so you can focus on building intelligent agents, not plumbing.
+**NeuroCore** is the _chassis_ for agentic AI. It wires together workflow orchestration, discoverable skills, structured configuration, and a developer-friendly CLI — so you can focus on building intelligent agents, not plumbing.
 
 ## Architecture
 
@@ -13,9 +13,9 @@ NeuroCore is the chassis for agentic AI. It wires together workflow orchestratio
 │  NeuroCore                                       │
 │  ┌────────────┬──────────────┬────────────────┐  │
 │  │  Config    │  CLI         │  Skill         │  │
-│  │  (YAML +  │  (Typer)     │  Registry      │  │
-│  │   .env)   │  init, run,  │  (discover,    │  │
-│  │           │  skill, val  │   load, meta)  │  │
+│  │  (YAML +   │  (Typer)     │  Registry      │  │
+│  │   .env)    │  init, run,  │  (discover,    │  │
+│  │            │  skill, val  │   load, meta)  │  │
 │  └────────────┴──────────────┴────────────────┘  │
 │  ┌────────────────────────────────────────────┐  │
 │  │  Runtime                                   │  │
@@ -26,10 +26,10 @@ NeuroCore is the chassis for agentic AI. It wires together workflow orchestratio
 │  BaseComponent, DAG/Sequential/Cyclic, Hooks     │
 ├──────────────────────────────────────────────────┤
 │  Skills (pip-installable or local)               │
-│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │
-│  │NeuroWeave│ │WebSearch │ │ User's Custom    │ │
-│  │  Skill   │ │  Skill   │ │   Skills         │ │
-│  └──────────┘ └──────────┘ └──────────────────┘ │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐  │
+│  │NeuroWeave│ │WebSearch │ │ User's Custom    │  │
+│  │  Skill   │ │  Skill   │ │   Skills         │  │
+│  └──────────┘ └──────────┘ └──────────────────┘  │
 └──────────────────────────────────────────────────┘
 ```
 

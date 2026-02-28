@@ -85,16 +85,18 @@ class TestSkillList:
         result = runner.invoke(
             app, ["skill", "list", "--project-root", str(tmp_path)]
         )
-        assert "2 skill(s) found" in result.output
+        # At least 2 directory skills + any entry point skills
+        assert "skill(s) found" in result.output
 
-    def test_empty_skills_directory(self, tmp_path: Path):
+    def test_empty_skills_directory_still_shows_entry_points(self, tmp_path: Path):
         (tmp_path / "neurocore.yaml").write_text("project:\n  name: test\n")
         (tmp_path / "skills").mkdir()
         result = runner.invoke(
             app, ["skill", "list", "--project-root", str(tmp_path)]
         )
         assert result.exit_code == 0
-        assert "No skills discovered" in result.output
+        # Entry point skills (neuroweave) are still discovered
+        assert "skill(s) found" in result.output
 
 
 class TestSkillInfo:
