@@ -25,6 +25,10 @@ Example:
 
 __version__ = "0.1.0"
 
+from neurocore.skills.base import Skill, SkillMeta
+
 __all__ = [
     "__version__",
+    "Skill",
+    "SkillMeta",
 ]
