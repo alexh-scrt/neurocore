@@ -1,0 +1,32 @@
+# neurocore.yaml — research agent configuration
+#
+# This example demonstrates a NeuroWeave-powered research agent.
+# It requires the neurocore-skill-neuroweave package:
+#
+#   pip install neurocore-skill-neuroweave
+#
+# And a valid LLM API key (set in .env or environment):
+#
+#   ANTHROPIC_API_KEY=sk-ant-...
+
+project:
+  name: "research-agent"
+  version: "0.1.0"
+
+paths:
+  skills: "skills"
+  blueprints: "blueprints"
+  data: "data"
+  logs: "logs"
+
+logging:
+  level: "INFO"
+  format: "console"
+
+# Skill configuration
+skills:
+  neuroweave:
+    mode: "context"             # process | query | context
+    llm_provider: "anthropic"   # anthropic | openai | mock
+    llm_model: "claude-haiku-4-5-20251001"
+    enable_visualization: false

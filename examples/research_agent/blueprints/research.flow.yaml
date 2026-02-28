@@ -1,0 +1,28 @@
+# research.flow.yaml — NeuroWeave knowledge graph flow
+#
+# Processes a message through NeuroWeave, extracting knowledge into
+# a graph and querying for relevant context in one step.
+#
+# Prerequisites:
+#   pip install neurocore-skill-neuroweave
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#
+# Usage:
+#   neurocore run blueprints/research.flow.yaml \
+#     --data message="Marie Curie discovered radium in 1898"
+#
+# Output:
+#   neuroweave_result: {entities_extracted: ..., relations_extracted: ...}
+#   neuroweave_context: {nodes: [...], edges: [...]}
+
+name: research-flow
+description: "Extract knowledge and query context via NeuroWeave"
+
+components:
+  - name: memory
+    type: neuroweave
+
+flow:
+  type: sequential
+  steps:
+    - component: memory

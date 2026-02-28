@@ -1,0 +1,19 @@
+# echo.flow.yaml — single-step echo blueprint
+#
+# Usage:
+#   neurocore run blueprints/echo.flow.yaml --data input="Hello, World!"
+#
+# Expected output:
+#   output: "Echo: Hello, World!"
+
+name: echo-flow
+description: "Simple echo — demonstrates a single skill execution"
+
+components:
+  - name: echoing
+    type: echo
+
+flow:
+  type: sequential
+  steps:
+    - component: echoing

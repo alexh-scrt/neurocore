@@ -1,0 +1,25 @@
+# pipeline.flow.yaml — multi-step pipeline blueprint
+#
+# Usage:
+#   neurocore run blueprints/pipeline.flow.yaml --data input="hello world"
+#
+# Expected output:
+#   output: "Echo: hello world"
+#   result: "ECHO: HELLO WORLD!"
+#
+# Flow: input → echo (adds prefix) → upper (uppercases + suffix) → done
+
+name: echo-pipeline
+description: "Two-step pipeline — echo then uppercase"
+
+components:
+  - name: step1
+    type: echo
+  - name: step2
+    type: upper
+
+flow:
+  type: sequential
+  steps:
+    - component: step1
+    - component: step2

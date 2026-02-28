@@ -1,0 +1,21 @@
+# neurocore.yaml — echo agent configuration
+project:
+  name: "echo-agent"
+  version: "0.1.0"
+
+paths:
+  skills: "skills"
+  blueprints: "blueprints"
+  data: "data"
+  logs: "logs"
+
+logging:
+  level: "INFO"
+  format: "console"
+
+# Skill configuration
+skills:
+  echo:
+    prefix: "Echo: "
+  upper:
+    suffix: "!"
