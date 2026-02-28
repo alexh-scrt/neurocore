@@ -1,0 +1,11 @@
+# agent.flow.yaml — example blueprint
+name: "{{ project_name }}-flow"
+description: "Default agent flow"
+
+flow:
+  type: sequential
+  steps:
+    - name: start
+      component: echo
+      config:
+        message: "Hello from {{ project_name }}!"

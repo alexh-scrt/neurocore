@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "neurocore"
+version = "0.1.0"
+description = "Pluggable, YAML-driven framework for building agentic AI applications"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.13"
+authors = [{ name = "NeuroCore Contributors" }]
+keywords = [
+    "agentic-ai",
+    "framework",
+    "workflow",
+    "skills",
+    "orchestration",
+    "yaml",
+    "cli",
+    "flowengine",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "flowengine>=0.4.1",
+    "pyyaml>=6.0",
+    "pydantic-settings>=2.7",
+    "structlog>=25.5.0",
+    "typer>=0.15",
+    "rich>=13.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "pytest-mock>=3.14",
+    "ruff>=0.8",
+    "mypy>=1.8",
+    "types-PyYAML>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/neurocore/neurocore"
+Repository = "https://github.com/neurocore/neurocore"
+Changelog = "https://github.com/neurocore/neurocore/blob/master/CHANGELOG.md"
+
+[project.scripts]
+neurocore = "neurocore.cli.app:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neurocore"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/neurocore/", "LICENSE", "README.md", "CHANGELOG.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+exclude = ["tests/"]
+
+[tool.coverage.run]
+source = ["src/neurocore"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

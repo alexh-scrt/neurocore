@@ -1,0 +1,20 @@
+# neurocore.yaml — project configuration
+project:
+  name: "{{ project_name }}"
+  version: "0.1.0"
+
+# Paths (relative to project root, resolved at load time)
+paths:
+  skills: "skills"
+  blueprints: "blueprints"
+  data: "data"
+  logs: "logs"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "console"
+  file: null
+
+# Skill configuration (passed to skills at init)
+skills: {}
