@@ -1,0 +1,9 @@
+# Minimal conda environment for Read the Docs builds.
+# The neurocore package and all docs tools are installed via pip
+# in .readthedocs.yaml (python.install: extra_requirements: [docs]).
+name: neurocore-docs
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip

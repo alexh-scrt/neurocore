@@ -88,8 +88,8 @@ class Skill(BaseComponent):
         4. process(context)     — main logic (each run)
         5. teardown(context)    — cleanup (each run)
 
-    Example:
-        ```python
+    Example::
+
         class GreetSkill(Skill):
             skill_meta = SkillMeta(
                 name="greet",
@@ -103,7 +103,6 @@ class Skill(BaseComponent):
                 name = context.get("user_name", "World")
                 context.set("greeting", f"Hello, {name}!")
                 return context
-        ```
     """
 
     skill_meta: ClassVar[SkillMeta]

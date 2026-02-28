@@ -743,7 +743,7 @@ Blueprint is valid.
 
 ## Part 5: Adding NeuroWeave (Knowledge Graph Memory)
 
-[NeuroWeave](https://github.com/alexh-scrt/neuroweave) is a real-time knowledge graph memory for agentic AI. The `neurocore-skill-neuroweave` package wraps it as a NeuroCore skill.
+[NeuroWeave](https://github.com/alexh-scrt/neuroweave) ([PyPI: `neuroweave-python`](https://pypi.org/project/neuroweave-python/)) is a real-time knowledge graph memory for agentic AI. The `neurocore-skill-neuroweave` package wraps it as a NeuroCore skill.
 
 ### 5.1 Install
 

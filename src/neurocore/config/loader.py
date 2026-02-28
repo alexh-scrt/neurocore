@@ -1,12 +1,13 @@
 """Configuration loader for NeuroCore.
 
 Loads configuration with the following priority (highest wins):
-    1. Environment variables (NEUROCORE_ prefix, double underscore for nesting)
+    1. Environment variables (``NEUROCORE_`` prefix, double underscore for nesting)
     2. .env file (project root)
     3. neurocore.yaml
     4. Built-in defaults
 
-Usage:
+Usage::
+
     from neurocore.config import load_config
 
     # Auto-detect project root (walks up from cwd)
@@ -76,7 +77,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
-    """Apply NEUROCORE_ environment variable overrides into the config dict.
+    """Apply ``NEUROCORE_`` environment variable overrides into the config dict.
 
     Supports nested keys via double underscore:
         NEUROCORE_LOGGING__LEVEL=DEBUG  →  data["logging"]["level"] = "DEBUG"

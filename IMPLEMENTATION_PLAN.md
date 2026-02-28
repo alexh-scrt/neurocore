@@ -74,9 +74,9 @@ NeuroCore is **not** an LLM abstraction layer. Each skill owns its own LLM clien
 | Package | PyPI Name | Depends On | Provides |
 |---|---|---|---|
 | `neurocore` | `neurocore` | `flowengine`, `pyyaml`, `pydantic-settings`, `structlog`, `typer` | Framework, CLI, skill registry |
-| `neurocore-skill-neuroweave` | `neurocore-skill-neuroweave` | `neurocore`, `neuroweave` | NeuroWeave as a FlowEngine skill |
+| `neurocore-skill-neuroweave` | `neurocore-skill-neuroweave` | `neurocore`, `neuroweave-python` | NeuroWeave as a FlowEngine skill |
 | `flowengine` | `flowengine` | `pyyaml`, `pydantic` | Workflow execution engine |
-| `neuroweave` | `neuroweave` | `anthropic`, `networkx`, etc. | Knowledge graph memory |
+| `neuroweave` | `neuroweave-python` | `anthropic`, `networkx`, etc. | Knowledge graph memory |
 
 NeuroCore has **no direct dependency** on NeuroWeave. The skill wrapper package bridges them.
 

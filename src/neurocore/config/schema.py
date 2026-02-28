@@ -19,8 +19,8 @@ The config hierarchy mirrors the YAML structure:
         llm_provider: "anthropic"
         ...
 
-Environment variable override uses NEUROCORE_ prefix with double
-underscore for nesting: NEUROCORE_LOGGING__LEVEL=DEBUG
+Environment variable override uses ``NEUROCORE_`` prefix with double
+underscore for nesting: ``NEUROCORE_LOGGING__LEVEL=DEBUG``
 """
 
 from __future__ import annotations

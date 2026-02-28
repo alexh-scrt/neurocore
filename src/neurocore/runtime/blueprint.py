@@ -5,7 +5,9 @@ skill names (not Python class paths). The runtime resolves skill
 names to classes via the SkillRegistry.
 
 Blueprint format:
-    ```yaml
+
+.. code-block:: yaml
+
     name: "my-flow"
     version: "1.0"
     description: "Optional description"
@@ -23,7 +25,6 @@ Blueprint format:
       steps:
         - component: memory
         - component: search
-    ```
 """
 
 from __future__ import annotations

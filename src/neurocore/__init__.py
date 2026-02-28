@@ -6,8 +6,8 @@ NeuroCore is the chassis for agentic AI — it wires together:
 - YAML-based configuration with environment variable overlay
 - A CLI for scaffolding, running, and inspecting projects
 
-Example:
-    ```python
+Example::
+
     from neurocore import Skill, SkillMeta
 
     class MySkill(Skill):
@@ -20,7 +20,6 @@ Example:
         def process(self, context):
             context.set("result", "hello from my skill")
             return context
-    ```
 """
 
 __version__ = "0.1.0"
