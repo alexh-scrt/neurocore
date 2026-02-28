@@ -10,7 +10,7 @@ not plumbing.
 ## Install
 
 ```bash
-pip install neurocore
+pip install neurocore-ai
 ```
 
 ## Quick start

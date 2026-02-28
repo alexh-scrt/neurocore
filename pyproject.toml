@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "neurocore"
+name = "neurocore-ai"
 version = "0.1.0"
 description = "Pluggable, YAML-driven framework for building agentic AI applications"
 readme = "README.md"
@@ -61,7 +61,7 @@ docs = [
 [project.urls]
 Homepage = "https://github.com/neurocore/neurocore"
 Repository = "https://github.com/neurocore/neurocore"
-Documentation = "https://neurocore.readthedocs.io"
+Documentation = "https://neurocore-ai.readthedocs.io"
 Changelog = "https://github.com/neurocore/neurocore/blob/master/CHANGELOG.md"
 
 [project.scripts]

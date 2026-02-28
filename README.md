@@ -48,7 +48,7 @@
 ### 1. Install
 
 ```bash
-pip install neurocore
+pip install neurocore-ai
 ```
 
 Or for local development with [FlowEngine](https://github.com/alexh-scrt/flowengine):

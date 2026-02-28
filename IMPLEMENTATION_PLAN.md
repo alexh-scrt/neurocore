@@ -379,7 +379,7 @@ Phase 1 (parallel):
 
 v0.1.0 is **done** when:
 
-1. `pip install neurocore && neurocore init my-agent && cd my-agent && neurocore run blueprints/agent.flow.yaml` works
+1. `pip install neurocore-ai && neurocore init my-agent && cd my-agent && neurocore run blueprints/agent.flow.yaml` works
 2. `pip install neurocore-skill-neuroweave` makes NeuroWeave discoverable via `neurocore skill list`
 3. A blueprint referencing the NeuroWeave skill by name executes correctly
 4. All 176+ tests pass
