@@ -22,7 +22,7 @@ Example::
             return context
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from neurocore.skills.base import Skill, SkillMeta
 
