@@ -1,0 +1,28 @@
+# Read the Docs configuration
+# https://docs.readthedocs.io/en/stable/config-file/v2.html
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "miniforge3-24.7"
+
+# Recreate the conda environment for docs builds
+conda:
+  environment: docs/environment.yml
+
+# Install the package itself (+ docs extras) into the conda env via pip
+python:
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+
+sphinx:
+  builder: html
+  configuration: docs/conf.py
+  fail_on_warning: false
+
+formats:
+  - epub
