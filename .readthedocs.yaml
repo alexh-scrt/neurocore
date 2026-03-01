@@ -5,7 +5,7 @@ version: 2
 build:
   os: ubuntu-24.04
   tools:
-    python: "miniforge3-24.7"
+    python: "miniforge3-25.11"
 
 # Recreate the conda environment for docs builds
 conda:
