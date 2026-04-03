@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "neurocore-skill-exa"
+version = "0.1.0"
+description = "Exa neural search and find-similar skill for NeuroCore"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.13"
+authors = [{ name = "NeuroCore Contributors" }]
+keywords = ["neurocore", "skill", "exa", "search", "neural", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    "neurocore-ai>=0.2.0",
+    "exa-py>=1.1",
+]
+
+[project.entry-points."neurocore.skills"]
+exa = "neurocore_skill_exa:ExaSkill"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neurocore_skill_exa"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/neurocore_skill_exa/", "tests/", "LICENSE", "README.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]

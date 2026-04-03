@@ -1,0 +1,178 @@
+name: ac1-research-pipeline
+version: "1.0"
+description: >
+  Full AC1-LLM autonomous research pipeline.
+  Discovers open problems, scans literature, forms proofs,
+  runs adversarial review, verifies with Lean4, and publishes.
+
+components:
+  # --- Discovery Phase ---
+  - name: frontier-scan
+    type: qdrant
+    config:
+      collection: ravennest_frontier
+      mode: search
+      top_k: 5
+
+  # --- Literature Discovery (concurrent) ---
+  - name: arxiv-scan
+    type: arxiv
+    config:
+      max_results: 20
+      sort_by: submittedDate
+      download_pdfs: true
+      pdf_dir: ./data/papers
+
+  - name: openalex-scan
+    type: openalex
+    config:
+      per_page: 25
+      filter: "type:article"
+      email: "research@ravennest.science"
+
+  - name: semantic-scholar-scan
+    type: semantic-scholar
+    config:
+      limit: 20
+      fields: "title,abstract,year,citationCount,influentialCitationCount,tldr,openAccessPdf"
+
+  - name: tavily-web-scan
+    type: tavily
+    config:
+      mode: search
+      max_results: 10
+      search_depth: advanced
+
+  # --- Full Text Retrieval ---
+  - name: unpaywall-resolver
+    type: unpaywall
+    config:
+      email: "research@ravennest.science"
+
+  - name: core-fulltext
+    type: core-api
+    config:
+      limit: 10
+      fulltext: true
+
+  # --- PDF Processing ---
+  - name: grobid-parser
+    type: grobid
+    config:
+      grobid_url: "http://localhost:8070"
+
+  # --- Knowledge Integration ---
+  - name: neuroweave-ingest
+    type: neuroweave
+    config:
+      mode: context
+      llm_provider: anthropic
+      llm_model: "claude-haiku-4-5-20251001"
+
+  # --- Reasoning (AC1 Master Researcher) ---
+  - name: ac1-researcher
+    type: claude-researcher
+    config:
+      llm_provider: anthropic
+      llm_model: "claude-sonnet-4-6"
+
+  # --- Adversarial Review (concurrent) ---
+  - name: reviewer-skeptic
+    type: claude-skeptic
+    config:
+      llm_provider: anthropic
+      llm_model: "claude-sonnet-4-6"
+
+  - name: reviewer-alt-theory
+    type: gpt-alt-theory
+    config:
+      llm_provider: openai
+      llm_model: "gpt-4o"
+
+  - name: reviewer-auditor
+    type: gemini-auditor
+    config:
+      llm_provider: openai
+      llm_model: "gpt-4o"
+
+  # --- Formal Verification ---
+  - name: lean4-verifier
+    type: lean4
+    config:
+      timeout_seconds: 300
+      cert_prefix: "RNS-CERT"
+
+  # --- Vector Storage ---
+  - name: qdrant-store
+    type: qdrant
+    config:
+      mode: upsert
+      collection: ravennest_papers
+
+flow:
+  type: graph
+  nodes:
+    - id: frontier-scan
+      component: frontier-scan
+    - id: arxiv-scan
+      component: arxiv-scan
+    - id: openalex-scan
+      component: openalex-scan
+    - id: s2-scan
+      component: semantic-scholar-scan
+    - id: tavily-scan
+      component: tavily-web-scan
+    - id: unpaywall
+      component: unpaywall-resolver
+    - id: core
+      component: core-fulltext
+    - id: grobid
+      component: grobid-parser
+    - id: neuroweave
+      component: neuroweave-ingest
+    - id: researcher
+      component: ac1-researcher
+    - id: skeptic
+      component: reviewer-skeptic
+    - id: alt-theory
+      component: reviewer-alt-theory
+    - id: auditor
+      component: reviewer-auditor
+    - id: lean4
+      component: lean4-verifier
+    - id: qdrant-out
+      component: qdrant-store
+
+  edges:
+    # Literature scan runs concurrently after frontier
+    - {source: frontier-scan, target: arxiv-scan}
+    - {source: frontier-scan, target: openalex-scan}
+    - {source: frontier-scan, target: s2-scan}
+    - {source: frontier-scan, target: tavily-scan}
+
+    # Full text resolution after paper scan
+    - {source: arxiv-scan,    target: unpaywall}
+    - {source: openalex-scan, target: unpaywall}
+    - {source: s2-scan,       target: unpaywall}
+    - {source: unpaywall,     target: core}
+    - {source: core,          target: grobid}
+
+    # Knowledge integration
+    - {source: grobid,        target: neuroweave}
+
+    # Research phase
+    - {source: neuroweave,    target: researcher}
+
+    # Adversarial review runs concurrently
+    - {source: researcher,    target: skeptic}
+    - {source: researcher,    target: alt-theory}
+    - {source: researcher,    target: auditor}
+
+    # Verification after review consensus
+    - {source: skeptic,       target: lean4}
+    - {source: alt-theory,    target: lean4}
+    - {source: auditor,       target: lean4}
+
+    # Store after verification
+    - {source: lean4,         target: qdrant-out}
+    - {source: neuroweave,    target: qdrant-out}

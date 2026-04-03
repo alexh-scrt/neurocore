@@ -87,6 +87,16 @@ class LoggingConfig(BaseModel):
     file: str | None = None
 
 
+class LLMConfig(BaseModel):
+    """Project-level LLM configuration shared across all skills that set requires_llm=True."""
+
+    provider: str = ""  # "anthropic" | "openai" | "mock" | ""
+    model: str = ""  # provider-specific model identifier
+    api_key: str = ""  # read from env: NEUROCORE_LLM__API_KEY
+    max_tokens: int = 8192
+    temperature: float = 1.0
+
+
 class NeuroCoreConfig(BaseModel):
     """Top-level NeuroCore configuration model.
 
@@ -97,6 +107,7 @@ class NeuroCoreConfig(BaseModel):
         project: Project metadata (name, version).
         paths: Directory paths for skills, blueprints, data, logs.
         logging: Logging level, format, optional file output.
+        llm: Project-level LLM configuration.
         skills: Per-skill configuration dicts, keyed by skill name.
         project_root: Resolved absolute path to the project root
                       (the directory containing neurocore.yaml).
@@ -106,6 +117,7 @@ class NeuroCoreConfig(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     skills: dict[str, dict[str, Any]] = Field(default_factory=dict)
     project_root: Path = Field(default_factory=lambda: Path.cwd())
 
@@ -149,10 +161,22 @@ class NeuroCoreConfig(BaseModel):
     def get_skill_config(self, skill_name: str) -> dict[str, Any]:
         """Get configuration for a specific skill.
 
+        Returns skill config merged with project-level LLM config as defaults.
+        Skill-level config wins over project-level LLM config.
+
         Args:
             skill_name: The skill's registered name.
 
         Returns:
             Config dict for the skill, or empty dict if not configured.
         """
-        return self.skills.get(skill_name, {})
+        skill_cfg = dict(self.skills.get(skill_name, {}))
+        # Project LLM config fills in missing keys — skill config wins
+        if self.llm.provider and "llm_provider" not in skill_cfg:
+            skill_cfg = {
+                "llm_provider": self.llm.provider,
+                "llm_model": self.llm.model,
+                "llm_api_key": self.llm.api_key,
+                **skill_cfg,
+            }
+        return skill_cfg

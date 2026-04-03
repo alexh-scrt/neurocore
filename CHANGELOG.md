@@ -5,6 +5,74 @@ All notable changes to NeuroCore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-04-03
+
+### Added
+
+#### Async Skill Execution (NC-001)
+- `AsyncSkill` base class for skills whose `process()` is an async coroutine
+- `is_async_skill()` helper to detect async skills at runtime
+- Automatic async/sync detection — blueprints with any async skill execute in an asyncio event loop
+- Sync skills wrapped automatically via `run_in_executor` when mixed with async skills
+
+#### Concurrent DAG Execution (NC-002)
+- Topological-layer DAG execution using `asyncio.gather()` for concurrent node processing
+- Kahn's algorithm for computing execution layers from blueprint edges
+- Cycle detection with clear error messages
+- Context merging across concurrent nodes (last-write-wins per key)
+
+#### Streaming Execution (NC-003)
+- `execute_blueprint_stream()` async generator yielding `FlowEvent` objects in real-time
+- `FlowEvent` and `FlowEventType` dataclasses for structured event data
+- Event types: `FLOW_STARTED`, `STEP_STARTED`, `STEP_COMPLETED`, `STEP_FAILED`, `FLOW_COMPLETED`, `FLOW_FAILED`
+- `--stream` flag on `neurocore run` for JSONL event output
+- Duration tracking per step and per flow
+
+#### LLM Provider Protocol (NC-004)
+- `LLMProvider` runtime-checkable protocol for pluggable LLM backends
+- `AnthropicProvider` — Claude integration via anthropic SDK
+- `OpenAIProvider` — GPT integration via openai SDK
+- `MockProvider` — deterministic testing provider with response queuing
+- `build_provider()` factory from config dict
+- `LLMMessage` and `LLMResponse` dataclasses
+- `requires_llm` flag on `SkillMeta` — automatic provider injection during skill init
+- `llm` attribute on `Skill` base class
+
+#### AC1 Research Skills (NC-005) — separate pip-installable packages
+- `neurocore-skill-arxiv` — arXiv preprint search and PDF download
+- `neurocore-skill-openalex` — OpenAlex academic paper search with citation data
+- `neurocore-skill-semantic-scholar` — Semantic Scholar search, recommendations, citations
+- `neurocore-skill-tavily` — Tavily AI-optimized web search (search/extract/research modes)
+- `neurocore-skill-exa` — Exa.ai neural semantic search for papers
+- `neurocore-skill-core-api` — CORE full-text open access paper retrieval
+- `neurocore-skill-unpaywall` — Unpaywall DOI-to-PDF resolver with concurrent lookups
+- `neurocore-skill-qdrant` — Qdrant vector store (search/upsert modes)
+- `neurocore-skill-grobid` — GROBID PDF-to-TEI XML parser
+- `neurocore-skill-lean4` — Lean4 formal proof verification with certificate generation
+- `neurocore-skill-sagemath` — SageMath computation (eval/script modes)
+- `neurocore-skill-sympy` — SymPy symbolic math with sandboxed evaluation
+- `neurocore-skill-oeis` — OEIS integer sequence lookup
+
+#### AC1 Blueprint (NC-006)
+- Reference `ac1-research.flow.yaml` blueprint wiring all AC1 skills into a DAG pipeline
+- Concurrent literature discovery (arXiv + OpenAlex + Semantic Scholar + Tavily)
+- Concurrent adversarial review (skeptic + alt-theory + auditor)
+- Full pipeline: frontier scan → literature → full text → PDF parsing → knowledge integration → reasoning → review → verification → storage
+
+#### Config Schema Extensions (NC-007)
+- `LLMConfig` model for project-level LLM configuration
+- Project-level LLM config auto-injected into skill configs when `llm_provider` not set at skill level
+- Skill-level config overrides project-level LLM config
+- Updated `neurocore init` scaffold template with LLM config section
+
+### Changed
+- Version bumped to 0.2.0
+- `anthropic>=0.42` added as core dependency
+- `pytest-asyncio>=0.24` added to dev dependencies
+- `openai>=1.0` available as optional dependency (`pip install neurocore-ai[openai]`)
+- Graph flow validation now requires both `nodes` and `edges` to be defined
+- Project URLs updated to point to correct GitHub repository
+
 ## [0.1.0] — 2026-02-28
 
 Initial release of NeuroCore — a pluggable, YAML-driven framework for building

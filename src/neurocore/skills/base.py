@@ -24,6 +24,7 @@ Usage:
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -60,6 +61,7 @@ class SkillMeta:
     consumes: list[str] = field(default_factory=list)
     config_schema: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
+    requires_llm: bool = False
 
 
 class Skill(BaseComponent):
@@ -119,6 +121,7 @@ class Skill(BaseComponent):
         meta = self._get_meta()
         component_name = name or meta.name
         super().__init__(component_name)
+        self.llm: Any = None  # injected by executor if requires_llm=True
 
     def _get_meta(self) -> SkillMeta:
         """Retrieve skill_meta, raising SkillError if not defined.
@@ -218,3 +221,19 @@ def _check_json_type(value: Any, json_type: str) -> bool:
     if json_type == "integer" and isinstance(value, bool):
         return False
     return isinstance(value, expected)
+
+
+class AsyncSkill(Skill):
+    """Skill whose process() is an async coroutine.
+
+    Subclass this instead of Skill when your process() needs to await.
+    The executor detects coroutines automatically via inspect.iscoroutinefunction.
+    """
+
+    async def process(self, context: FlowContext) -> FlowContext:  # type: ignore[override]
+        raise NotImplementedError
+
+
+def is_async_skill(skill_instance: Skill) -> bool:
+    """Return True if the skill's process() is a coroutine function."""
+    return inspect.iscoroutinefunction(skill_instance.process)

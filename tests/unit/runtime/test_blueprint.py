@@ -180,6 +180,7 @@ class TestBlueprintModel:
                         {"id": "n1", "component": "a"},
                         {"id": "n1", "component": "a"},
                     ],
+                    edges=[{"source": "n1", "target": "n1"}],
                 ),
             )
 

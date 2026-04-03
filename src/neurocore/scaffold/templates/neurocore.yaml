@@ -3,6 +3,12 @@ project:
   name: "{{ project_name }}"
   version: "0.1.0"
 
+# LLM configuration (shared across all skills with requires_llm=True)
+llm:
+  provider: ""          # anthropic | openai | mock
+  model: ""
+  api_key: ""           # or set NEUROCORE_LLM__API_KEY env var
+
 # Paths (relative to project root, resolved at load time)
 paths:
   skills: "skills"

@@ -6,11 +6,15 @@ executes through FlowEngine. Outputs the final context data.
 Usage:
     neurocore run blueprints/agent.flow.yaml
     neurocore run flow.yaml --data input=hello --data count=5
+    neurocore run flow.yaml --stream
     neurocore run flow.yaml --project-root /path/to/project
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -66,6 +70,11 @@ def run_blueprint(
         "-d",
         help="Initial context data as KEY=VALUE pairs.",
     ),
+    stream: bool = typer.Option(
+        False,
+        "--stream",
+        help="Stream execution events as JSONL.",
+    ),
     project_root: Optional[Path] = typer.Option(
         None,
         "--project-root",
@@ -86,8 +95,15 @@ def run_blueprint(
     ),
 ) -> None:
     """Execute a blueprint via FlowEngine."""
-    # Lazy import to keep CLI startup fast
-    from neurocore.runtime.executor import load_and_run
+    # Lazy imports to keep CLI startup fast
+    from neurocore.config.loader import load_config
+    from neurocore.runtime.blueprint import load_blueprint
+    from neurocore.runtime.executor import (
+        execute_blueprint as exec_bp,
+        execute_blueprint_stream,
+        load_and_run,
+    )
+    from neurocore.skills.loader import discover_skills
 
     # Parse data arguments
     initial_data = _parse_data_args(data) if data else None
@@ -103,11 +119,42 @@ def run_blueprint(
         console.print()
 
     try:
-        result = load_and_run(
-            blueprint_path,
-            project_root=project_root,
-            initial_data=initial_data,
-        )
+        if stream:
+            # Stream mode: print JSONL events
+            neurocore_config = load_config(project_root=project_root)
+            registry = discover_skills(neurocore_config)
+            bp = load_blueprint(blueprint_path)
+
+            async def _stream() -> None:
+                async for event in execute_blueprint_stream(
+                    bp, registry, neurocore_config, initial_data
+                ):
+                    line = json.dumps(event.to_dict(), default=str)
+                    sys.stdout.write(line + "\n")
+                    sys.stdout.flush()
+
+            asyncio.run(_stream())
+        else:
+            result = load_and_run(
+                blueprint_path,
+                project_root=project_root,
+                initial_data=initial_data,
+            )
+
+            # Output results
+            if output_json:
+                output_console.print(result.to_json())
+            else:
+                data_dict = (
+                    result.data.to_dict()
+                    if hasattr(result.data, "to_dict")
+                    else dict(result.data)
+                )
+                json_str = json.dumps(data_dict, indent=2, default=str)
+                syntax = Syntax(json_str, "json", theme="monokai")
+                output_console.print(
+                    Panel(syntax, title="[green]Result[/green]", border_style="green")
+                )
     except BlueprintError as e:
         console.print(f"[red]Blueprint error:[/red] {e}")
         raise typer.Exit(code=1) from None
@@ -117,15 +164,3 @@ def run_blueprint(
     except NeuroCoreError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1) from None
-
-    # Output results
-    if output_json:
-        output_console.print(result.to_json())
-    else:
-        # Pretty-print the context data
-        import json
-
-        data_dict = result.data.to_dict() if hasattr(result.data, "to_dict") else dict(result.data)
-        json_str = json.dumps(data_dict, indent=2, default=str)
-        syntax = Syntax(json_str, "json", theme="monokai")
-        output_console.print(Panel(syntax, title="[green]Result[/green]", border_style="green"))

@@ -7,7 +7,7 @@ FlowEngine's execution engine. It:
 2. Merges config: neurocore.yaml skills.<name> (base) + blueprint config (overlay)
 3. Creates and initializes Skill instances
 4. Builds a FlowEngine FlowConfig and component dict
-5. Executes via FlowEngine
+5. Executes via FlowEngine (sync or async)
 
 Usage:
     from neurocore.runtime import execute_blueprint, load_and_run
@@ -17,10 +17,18 @@ Usage:
 
     # High-level (load + discover + execute)
     result = load_and_run(blueprint_path, project_root=Path("."))
+
+    # Streaming
+    async for event in execute_blueprint_stream(bp, registry, cfg):
+        print(event.event_type, event.step_name)
 """
 
 from __future__ import annotations
 
+import asyncio
+import time
+from collections import defaultdict, deque
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +46,7 @@ from neurocore.config.loader import load_config
 from neurocore.config.schema import NeuroCoreConfig
 from neurocore.errors import BlueprintError, ExecutionError
 from neurocore.runtime.blueprint import Blueprint, load_blueprint, validate_blueprint
-from neurocore.skills.base import Skill
+from neurocore.skills.base import Skill, is_async_skill
 from neurocore.skills.loader import discover_skills
 from neurocore.skills.registry import SkillRegistry
 
@@ -104,11 +112,22 @@ def _create_skill_instances(
         except Exception as e:
             raise BlueprintError(
                 f"Failed to instantiate skill '{comp.type}' as '{comp.name}': {e}"
-            )
+            ) from e
 
         # Merge config and initialize
         merged_config = merge_skill_config(neurocore_config, comp.type, comp.config)
         instance.init(merged_config)
+
+        # Inject LLM provider if required
+        if instance.skill_meta.requires_llm:
+            from neurocore.llm.provider import build_provider
+
+            instance.llm = build_provider(merged_config)
+            if instance.llm is None:
+                raise BlueprintError(
+                    f"Skill '{comp.name}' has requires_llm=True but no llm_provider "
+                    f"is configured. Set llm_provider in neurocore.yaml or blueprint config."
+                )
 
         # Validate config
         config_errors = instance.validate_config()
@@ -183,7 +202,7 @@ def _build_flow_config(
         ]
 
     if blueprint.flow.nodes:
-        from flowengine import GraphNodeConfig, GraphEdgeConfig
+        from flowengine import GraphEdgeConfig, GraphNodeConfig
 
         fe_flow_kwargs["nodes"] = [
             GraphNodeConfig(
@@ -216,6 +235,101 @@ def _build_flow_config(
     )
 
 
+# ---------------------------------------------------------------------------
+# Async helpers
+# ---------------------------------------------------------------------------
+
+async def _run_skill_async(skill: Skill, context: FlowContext) -> FlowContext:
+    """Run a skill's process(), awaiting if it is a coroutine."""
+    if is_async_skill(skill):
+        return await skill.process(context)  # type: ignore[misc]
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, skill.process, context)
+
+
+def _get_sequential_steps(blueprint: Blueprint) -> list[Any]:
+    """Return the ordered list of flow steps for sequential/conditional flows."""
+    if blueprint.flow.steps:
+        return list(blueprint.flow.steps)
+    return []
+
+
+async def _execute_blueprint_async(
+    blueprint: Blueprint,
+    instances: dict[str, Skill],
+    merged_configs: dict[str, dict[str, Any]],
+    initial_data: dict[str, Any] | None,
+) -> FlowContext:
+    """Execute a sequential/conditional blueprint asynchronously."""
+    context = FlowContext()
+    if initial_data:
+        for k, v in initial_data.items():
+            context.set(k, v)
+    steps = _get_sequential_steps(blueprint)
+    for step in steps:
+        skill = instances[step.component]
+        context = await _run_skill_async(skill, context)
+    return context
+
+
+async def _execute_dag_concurrent(
+    blueprint: Blueprint,
+    instances: dict[str, Skill],
+    merged_configs: dict[str, dict[str, Any]],
+    initial_data: dict[str, Any] | None,
+) -> FlowContext:
+    """Execute a DAG blueprint with concurrent layers."""
+    edges = blueprint.flow.edges or []
+    nodes = blueprint.flow.nodes or []
+    in_degree: dict[str, int] = {n.id: 0 for n in nodes}
+    adjacency: dict[str, list[str]] = defaultdict(list)
+    for edge in edges:
+        adjacency[edge.source].append(edge.target)
+        in_degree[edge.target] = in_degree.get(edge.target, 0) + 1
+
+    # Kahn's algorithm to get layers
+    queue: deque[str] = deque(k for k, v in in_degree.items() if v == 0)
+    layers: list[list[str]] = []
+    visited = 0
+    while queue:
+        layer = list(queue)
+        layers.append(layer)
+        visited += len(layer)
+        queue.clear()
+        for node_id in layer:
+            for neighbour in adjacency[node_id]:
+                in_degree[neighbour] -= 1
+                if in_degree[neighbour] == 0:
+                    queue.append(neighbour)
+
+    if visited != len(nodes):
+        raise BlueprintError("DAG contains a cycle — topological sort failed.")
+
+    # Map node IDs to component names
+    node_to_component = {n.id: n.component for n in nodes}
+
+    # Execute each layer concurrently
+    context = FlowContext()
+    if initial_data:
+        for k, v in initial_data.items():
+            context.set(k, v)
+    for layer in layers:
+        layer_skills = [instances[node_to_component[node_id]] for node_id in layer]
+        results = await asyncio.gather(
+            *[_run_skill_async(skill, context) for skill in layer_skills]
+        )
+        # Merge results into context (last write wins per key)
+        for result_ctx in results:
+            for key, value in result_ctx.data.items():
+                context.set(key, value)
+
+    return context
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def execute_blueprint(
     blueprint: Blueprint,
     registry: SkillRegistry,
@@ -223,13 +337,14 @@ def execute_blueprint(
     *,
     initial_data: dict[str, Any] | None = None,
 ) -> FlowContext:
-    """Execute a blueprint using FlowEngine.
+    """Execute a blueprint. Supports both sync and async skills.
 
     This is the core execution function. It:
     1. Validates skill references
     2. Creates and initializes skill instances with merged config
-    3. Builds a FlowEngine FlowConfig
-    4. Executes via FlowEngine
+    3. Detects async skills and chooses execution path
+    4. For sync-only blueprints, delegates to FlowEngine
+    5. For async blueprints, uses asyncio event loop
 
     Args:
         blueprint: Parsed Blueprint.
@@ -256,11 +371,29 @@ def execute_blueprint(
         blueprint, registry, neurocore_config
     )
 
-    # Build FlowEngine config (with merged configs so FlowEngine
-    # re-initializes components with the correct merged config)
-    flow_config = _build_flow_config(blueprint, merged_configs)
+    has_async = any(is_async_skill(s) for s in skill_instances.values())
 
-    # Create FlowEngine with pre-built components (skip type validation)
+    if has_async or blueprint.flow.type == "graph":
+        # Async path: handles async skills and DAG concurrent execution
+        try:
+            if blueprint.flow.type == "graph" and blueprint.flow.edges:
+                return asyncio.run(
+                    _execute_dag_concurrent(
+                        blueprint, skill_instances, merged_configs, initial_data
+                    )
+                )
+            return asyncio.run(
+                _execute_blueprint_async(
+                    blueprint, skill_instances, merged_configs, initial_data
+                )
+            )
+        except Exception as e:
+            if isinstance(e, (BlueprintError, ExecutionError)):
+                raise
+            raise ExecutionError(f"Blueprint execution failed: {e}") from e
+
+    # Sync path: use FlowEngine for backward compatibility
+    flow_config = _build_flow_config(blueprint, merged_configs)
     try:
         engine = FlowEngine(
             flow_config,
@@ -268,21 +401,80 @@ def execute_blueprint(
             validate_types=False,
         )
     except Exception as e:
-        raise ExecutionError(f"Failed to create FlowEngine: {e}")
+        raise ExecutionError(f"Failed to create FlowEngine: {e}") from e
 
-    # Build initial context
     context = FlowContext()
     if initial_data:
         for key, value in initial_data.items():
             context.set(key, value)
 
-    # Execute
     try:
         result = engine.execute(context)
     except Exception as e:
-        raise ExecutionError(f"Blueprint execution failed: {e}")
+        raise ExecutionError(f"Blueprint execution failed: {e}") from e
 
     return result
+
+
+async def execute_blueprint_stream(
+    blueprint: Blueprint,
+    registry: SkillRegistry,
+    config: NeuroCoreConfig,
+    initial_data: dict[str, Any] | None = None,
+) -> AsyncIterator[Any]:
+    """Execute a blueprint, yielding FlowEvents as each step runs.
+
+    Usage:
+        async for event in execute_blueprint_stream(bp, registry, cfg):
+            print(event.event_type, event.step_name)
+    """
+    from neurocore.runtime.events import FlowEvent, FlowEventType
+
+    instances, merged_configs = _create_skill_instances(blueprint, registry, config)
+    steps = _get_sequential_steps(blueprint)
+
+    flow_start = time.time()
+    yield FlowEvent(FlowEventType.FLOW_STARTED, step_name="", data={"blueprint": blueprint.name})
+
+    context = FlowContext()
+    if initial_data:
+        for k, v in initial_data.items():
+            context.set(k, v)
+    for step in steps:
+        skill = instances[step.component]
+        step_start = time.time()
+        yield FlowEvent(FlowEventType.STEP_STARTED, step_name=step.component)
+        try:
+            context = await _run_skill_async(skill, context)
+            duration = (time.time() - step_start) * 1000
+            yield FlowEvent(
+                FlowEventType.STEP_COMPLETED,
+                step_name=step.component,
+                duration_ms=duration,
+                data={k: v for k, v in context.data.items()
+                      if k in (skill.skill_meta.provides or [])},
+            )
+        except Exception as exc:
+            duration = (time.time() - step_start) * 1000
+            yield FlowEvent(
+                FlowEventType.STEP_FAILED,
+                step_name=step.component,
+                duration_ms=duration,
+                error=str(exc),
+            )
+            yield FlowEvent(
+                FlowEventType.FLOW_FAILED,
+                step_name="",
+                duration_ms=(time.time() - flow_start) * 1000,
+                error=str(exc),
+            )
+            raise
+
+    yield FlowEvent(
+        FlowEventType.FLOW_COMPLETED,
+        step_name="",
+        duration_ms=(time.time() - flow_start) * 1000,
+    )
 
 
 def load_and_run(

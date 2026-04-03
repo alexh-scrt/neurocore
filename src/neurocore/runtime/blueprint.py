@@ -99,10 +99,10 @@ class FlowDefinition(BaseModel):
                     f"'{self.type}' flow requires 'steps'"
                 )
         elif self.type == "graph":
-            if not self.nodes:
-                raise ValueError("'graph' flow requires 'nodes'")
-            if self.edges is None:
-                self.edges = []
+            if not self.nodes or not self.edges:
+                raise ValueError(
+                    "Graph flow requires 'nodes' and 'edges' to be defined."
+                )
         return self
 
 
