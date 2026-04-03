@@ -39,11 +39,12 @@
 - **Skill system** — extend `Skill` or `AsyncSkill` (FlowEngine `BaseComponent` with metadata), discoverable via directory scan or `pyproject.toml` entry points
 - **Async-first execution** — `AsyncSkill` for non-blocking I/O, concurrent DAG execution with `asyncio.gather()`
 - **Streaming execution** — real-time `FlowEvent` stream via `execute_blueprint_stream()`
-- **LLM provider protocol** — pluggable `LLMProvider` with Anthropic, OpenAI, and mock backends; automatic injection via `requires_llm=True`
+- **LLM provider protocol** — pluggable `LLMProvider` with Anthropic, OpenAI, Gemini, and mock backends; automatic injection via `requires_llm=True`
+- **Retry & backoff** — automatic exponential backoff with full jitter on skill failures via `SkillMeta` fields (`max_retries`, `retry_delay_base`, `retry_delay_max`, `retry_on`)
 - **Blueprint execution** — standard FlowEngine YAML flows with skill-aware resolution, sync and async
 - **Structured logging** — `structlog` with console (dev) and JSON (production) modes
 - **CLI** — `neurocore init`, `run`, `skill list/info`, `validate`, `version` (with `--stream` support)
-- **13 AC1 research skills** — arXiv, OpenAlex, Semantic Scholar, Tavily, Exa, CORE, Unpaywall, Qdrant, GROBID, Lean4, SageMath, SymPy, OEIS
+- **14 AC1 research skills** — arXiv, OpenAlex, Semantic Scholar, Tavily, Exa, CORE, Unpaywall, Qdrant, GROBID, Lean4, SageMath, SymPy, OEIS, Gemini Auditor
 
 ---
 

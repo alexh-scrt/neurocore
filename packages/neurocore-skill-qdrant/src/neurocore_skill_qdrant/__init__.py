@@ -57,11 +57,14 @@ class QdrantSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="qdrant",
-        version="0.1.0",
+        version="0.1.1",
         description="Vector similarity search and upsert via Qdrant",
         provides=["qdrant_results"],
         consumes=["qdrant_query_vector", "qdrant_points"],
         tags=["vector-store", "search", "qdrant", "embeddings"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
         config_schema={
             "type": "object",
             "required": ["url", "collection"],

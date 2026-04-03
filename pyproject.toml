@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neurocore-ai"
-version = "0.2.0"
+version = "0.2.1"
 description = "Pluggable, YAML-driven framework for building agentic AI applications"
 readme = "README.md"
 license = "Apache-2.0"
@@ -46,6 +46,7 @@ dependencies = [
 
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
+gemini = ["google-genai>=1.0"]
 dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",

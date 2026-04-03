@@ -62,6 +62,10 @@ class SkillMeta:
     config_schema: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     requires_llm: bool = False
+    max_retries: int = 0
+    retry_delay_base: float = 1.0
+    retry_delay_max: float = 60.0
+    retry_on: tuple[type[BaseException], ...] = field(default_factory=tuple)
 
 
 class Skill(BaseComponent):

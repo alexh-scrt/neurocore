@@ -275,6 +275,10 @@ classDiagram
         +consumes: list~str~
         +config_schema: dict
         +tags: list~str~
+        +max_retries: int
+        +retry_delay_base: float
+        +retry_delay_max: float
+        +retry_on: list~str~
     }
 
     class SkillRegistry {
@@ -455,9 +459,13 @@ classDiagram
         +consumes: list~str~ = []
         +config_schema: dict~str, Any~ =
         +tags: list~str~ = []
+        +max_retries: int = 0
+        +retry_delay_base: float = 1.0
+        +retry_delay_max: float = 60.0
+        +retry_on: list~str~ = []
     }
 
-    note for SkillMeta "Immutable after creation.\nUsed for discovery, validation,\ndocumentation, and config injection."
+    note for SkillMeta "Immutable after creation.\nUsed for discovery, validation,\ndocumentation, config injection,\nand retry/backoff policy."
 ```
 
 ---
@@ -721,6 +729,21 @@ sequenceDiagram
     load_and_run-->>Caller: FlowContext
 ```
 
+### 11.1 Retry / Backoff Mechanism
+
+When a skill's `SkillMeta` declares retry fields, the executor automatically
+wraps the skill's `process()` call with exponential backoff:
+
+| `SkillMeta` Field | Type | Default | Description |
+| ----------------- | ---- | ------- | ----------- |
+| `max_retries` | `int` | `0` | Maximum number of retry attempts (0 = no retries) |
+| `retry_delay_base` | `float` | `1.0` | Initial delay in seconds before the first retry |
+| `retry_delay_max` | `float` | `60.0` | Upper bound on the delay between retries |
+| `retry_on` | `list[str]` | `[]` | Exception class names that trigger a retry (empty = retry on any exception) |
+
+The delay between retries grows exponentially: `min(retry_delay_base * 2^attempt, retry_delay_max)`.
+If all retries are exhausted, the last exception propagates as an `ExecutionError`.
+
 ---
 
 ## 12. CLI Command Flow
@@ -856,7 +879,7 @@ Rows are source modules (importers). Columns are target modules (imported).
 | Skill discovery | Directory + entry points | Local dev (directory) + pip-installable packages (entry points) |
 | Skill precedence | Entry points > directory | Installed version wins over local development copy |
 | NeuroWeave coupling | Separate skill package | NeuroCore stays LLM/memory agnostic |
-| LLM abstraction | None (skills own theirs) | NeuroCore orchestrates, doesn't opine on providers |
+| LLM abstraction | None (skills own theirs) | NeuroCore orchestrates, doesn't opine on providers (OpenAI, Anthropic, Gemini, Ollama, etc.) |
 | Blueprint format | Standard FlowEngine YAML | No new format to learn; full FlowEngine power |
 | Async bridge | `asyncio.run()` in skill | CLI is sync, async skills bridge internally |
 | Type validation | `validate_types=False` | Components are pre-built by executor, not loaded by FlowEngine |

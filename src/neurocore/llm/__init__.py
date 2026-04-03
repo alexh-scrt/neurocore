@@ -1,6 +1,7 @@
 """LLM provider abstraction for NeuroCore skills."""
 from neurocore.llm.provider import (
     AnthropicProvider,
+    GeminiProvider,
     LLMMessage,
     LLMProvider,
     LLMResponse,
@@ -14,6 +15,7 @@ __all__ = [
     "LLMMessage",
     "LLMResponse",
     "AnthropicProvider",
+    "GeminiProvider",
     "OpenAIProvider",
     "MockProvider",
     "build_provider",

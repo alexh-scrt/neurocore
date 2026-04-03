@@ -12,7 +12,7 @@ By the end of this tutorial you will have built:
 
 1. **Custom skills** — reusable AI components with metadata and config validation
 2. **A personal experiences collector** — a chat app that remembers your experiences using NeuroWeave's knowledge graph
-3. **A multi-provider LLM agent** — a single skill that talks to OpenAI, Anthropic, or Ollama based on config
+3. **A multi-provider LLM agent** — a single skill that talks to OpenAI, Anthropic, Gemini, or Ollama based on config
 4. **A multi-agent research pipeline** — parallel worker agents orchestrated by a coordinator using graph flows
 
 ---
@@ -158,6 +158,10 @@ Every NeuroCore skill is a Python class that:
 | `consumes` | `list[str]` | No | Context keys this skill reads |
 | `config_schema` | `dict` | No | JSON Schema for config validation |
 | `tags` | `list[str]` | No | Categorization tags |
+| `max_retries` | `int` | No | Maximum retry attempts for `process()` (default `0`) |
+| `retry_delay_base` | `float` | No | Initial retry delay in seconds (default `1.0`) |
+| `retry_delay_max` | `float` | No | Maximum retry delay cap in seconds (default `60.0`) |
+| `retry_on` | `list[str]` | No | Exception names that trigger a retry (empty = any) |
 
 **Skill lifecycle:**
 
@@ -805,6 +809,21 @@ skills:
 OPENAI_API_KEY=sk-...
 ```
 
+**Gemini:**
+
+```yaml
+skills:
+  neuroweave:
+    mode: "context"
+    llm_provider: "gemini"
+    llm_model: "gemini-2.0-flash"
+```
+
+```bash
+# .env
+GOOGLE_API_KEY=AI...
+```
+
 **Mock (no API key needed — for testing):**
 
 ```yaml
@@ -1155,7 +1174,7 @@ Build a single skill that can talk to OpenAI, Anthropic, or a local Ollama deplo
 
 ### 7.1 Design
 
-NeuroCore deliberately has no built-in LLM abstraction. Skills own their provider logic. This pattern demonstrates a config-driven provider selection:
+NeuroCore deliberately has no built-in LLM abstraction. Skills own their provider logic (OpenAI, Anthropic, Gemini, Ollama, etc.). This pattern demonstrates a config-driven provider selection:
 
 ```
 neurocore.yaml                    Blueprint config (overlay)
@@ -1170,7 +1189,7 @@ neurocore.yaml                    Blueprint config (overlay)
 `skills/llm_chat.py`:
 
 ```python
-"""LLM Chat skill — multi-provider chat with OpenAI, Anthropic, and Ollama."""
+"""LLM Chat skill — multi-provider chat with OpenAI, Anthropic, Gemini, and Ollama."""
 
 from __future__ import annotations
 
@@ -1188,7 +1207,7 @@ class LLMChatSkill(Skill):
     skill_meta = SkillMeta(
         name="llm-chat",
         version="1.0.0",
-        description="Multi-provider LLM chat (OpenAI, Anthropic, Ollama)",
+        description="Multi-provider LLM chat (OpenAI, Anthropic, Gemini, Ollama)",
         author="Tutorial",
         provides=["llm_response"],
         consumes=["prompt"],
@@ -1196,7 +1215,7 @@ class LLMChatSkill(Skill):
             "properties": {
                 "provider": {
                     "type": "string",
-                    "description": "LLM provider: openai, anthropic, ollama, or mock",
+                    "description": "LLM provider: openai, anthropic, gemini, ollama, or mock",
                 },
                 "model": {
                     "type": "string",
@@ -1217,7 +1236,7 @@ class LLMChatSkill(Skill):
             },
             "required": ["provider", "model"],
         },
-        tags=["llm", "chat", "openai", "anthropic", "ollama"],
+        tags=["llm", "chat", "openai", "anthropic", "gemini", "ollama"],
     )
 
     def init(self, config: dict[str, Any]) -> None:
@@ -1240,6 +1259,8 @@ class LLMChatSkill(Skill):
             response = self._call_openai(prompt)
         elif self._provider == "anthropic":
             response = self._call_anthropic(prompt)
+        elif self._provider == "gemini":
+            response = self._call_gemini(prompt)
         elif self._provider == "ollama":
             response = self._call_ollama(prompt)
         elif self._provider == "mock":
@@ -1276,6 +1297,20 @@ class LLMChatSkill(Skill):
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text
+
+    def _call_gemini(self, prompt: str) -> str:
+        """Call Google Gemini API."""
+        from google import genai
+
+        client = genai.Client(api_key=self._api_key)
+        response = client.models.generate_content(
+            model=self._model,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=self._system_prompt,
+            ),
+        )
+        return response.text
 
     def _call_ollama(self, prompt: str) -> str:
         """Call Ollama REST API."""
@@ -1351,6 +1386,25 @@ flow:
     - component: llm
 ```
 
+`blueprints/chat-gemini.flow.yaml`:
+
+```yaml
+name: chat-gemini
+description: "Chat using Google Gemini"
+
+components:
+  - name: llm
+    type: llm-chat
+    config:
+      provider: "gemini"
+      model: "gemini-2.0-flash"
+
+flow:
+  type: sequential
+  steps:
+    - component: llm
+```
+
 `blueprints/chat-ollama.flow.yaml`:
 
 ```yaml
@@ -1387,6 +1441,7 @@ skills:
 # .env
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
+GOOGLE_API_KEY=AI...
 ```
 
 Run with each provider:
@@ -1398,6 +1453,10 @@ neurocore run blueprints/chat-openai.flow.yaml \
 
 # Anthropic
 neurocore run blueprints/chat-anthropic.flow.yaml \
+  --data prompt="Explain quantum computing in 2 sentences"
+
+# Gemini
+neurocore run blueprints/chat-gemini.flow.yaml \
   --data prompt="Explain quantum computing in 2 sentences"
 
 # Ollama (ensure ollama serve is running)

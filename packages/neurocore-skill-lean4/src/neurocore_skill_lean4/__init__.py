@@ -60,11 +60,14 @@ class Lean4Skill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="lean4",
-        version="0.1.0",
+        version="0.1.1",
         description="Verify Lean 4 proof sources using the lean binary",
         provides=["lean4_result"],
         consumes=["lean4_proof_source"],
         tags=["lean4", "formal-verification", "theorem-proving", "mathematics"],
+        max_retries=2,
+        retry_delay_base=5.0,
+        retry_delay_max=60.0,
         config_schema={
             "type": "object",
             "properties": {

@@ -140,7 +140,7 @@ class OpenAlexSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="openalex",
-        version="0.1.0",
+        version="0.1.1",
         description="Query OpenAlex for papers, citation counts, and author info",
         provides=["openalex_works"],
         consumes=["openalex_query"],
@@ -155,6 +155,9 @@ class OpenAlexSkill(AsyncSkill):
         },
         requires=["httpx>=0.27"],
         tags=["search", "papers", "citations", "open-access"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
     )
 
     async def process(self, context: FlowContext) -> FlowContext:

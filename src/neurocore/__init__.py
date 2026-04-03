@@ -22,7 +22,7 @@ Example::
             return context
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from neurocore.runtime.events import FlowEvent, FlowEventType
 from neurocore.skills.base import AsyncSkill, Skill, SkillMeta, is_async_skill

@@ -57,11 +57,14 @@ class GrobidSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="grobid",
-        version="0.1.0",
+        version="0.1.1",
         description="Extract structured TEI XML from a PDF via GROBID",
         provides=["grobid_tei"],
         consumes=["pdf_path"],
         tags=["pdf", "nlp", "grobid", "tei", "extraction"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
         config_schema={
             "type": "object",
             "required": ["grobid_url"],

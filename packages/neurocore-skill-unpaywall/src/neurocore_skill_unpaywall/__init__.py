@@ -51,11 +51,14 @@ class UnpaywallSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="unpaywall",
-        version="0.1.0",
+        version="0.1.1",
         description="Fetch open-access PDF URLs from Unpaywall for a list of DOIs",
         provides=["unpaywall_results"],
         consumes=["dois"],
         tags=["literature", "open-access", "doi", "unpaywall"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
         config_schema={
             "type": "object",
             "required": ["email"],

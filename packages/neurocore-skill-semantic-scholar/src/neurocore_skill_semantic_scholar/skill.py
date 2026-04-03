@@ -58,12 +58,15 @@ class SemanticScholarSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="semantic-scholar",
-        version="0.1.0",
+        version="0.1.1",
         description="Semantic Scholar paper search skill for NeuroCore",
         requires=["httpx>=0.27"],
         provides=["s2_papers"],
         consumes=["s2_query", "s2_positive_paper_ids"],
         tags=["research", "papers", "semantic-scholar", "academic"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
         config_schema={
             "properties": {
                 "mode": {

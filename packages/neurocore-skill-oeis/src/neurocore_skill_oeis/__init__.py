@@ -53,11 +53,14 @@ class OEISSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="oeis",
-        version="0.1.0",
+        version="0.1.1",
         description="Query the On-Line Encyclopedia of Integer Sequences (OEIS)",
         provides=["oeis_results"],
         consumes=["oeis_query"],
         tags=["oeis", "mathematics", "sequences", "number-theory"],
+        max_retries=2,
+        retry_delay_base=1.0,
+        retry_delay_max=30.0,
         config_schema={
             "type": "object",
             "properties": {

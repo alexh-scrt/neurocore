@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
@@ -45,10 +46,13 @@ from flowengine import (
 from neurocore.config.loader import load_config
 from neurocore.config.schema import NeuroCoreConfig
 from neurocore.errors import BlueprintError, ExecutionError
+from neurocore.logging import get_logger
 from neurocore.runtime.blueprint import Blueprint, load_blueprint, validate_blueprint
 from neurocore.skills.base import Skill, is_async_skill
 from neurocore.skills.loader import discover_skills
 from neurocore.skills.registry import SkillRegistry
+
+log = get_logger("executor")
 
 
 def merge_skill_config(
@@ -240,11 +244,60 @@ def _build_flow_config(
 # ---------------------------------------------------------------------------
 
 async def _run_skill_async(skill: Skill, context: FlowContext) -> FlowContext:
-    """Run a skill's process(), awaiting if it is a coroutine."""
-    if is_async_skill(skill):
-        return await skill.process(context)  # type: ignore[misc]
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, skill.process, context)
+    """Execute a skill's process(), with automatic retry and exponential backoff.
+
+    Retry behaviour is controlled by skill.skill_meta:
+        max_retries=0        → no retry (default, backward-compatible)
+        max_retries=3        → up to 3 retries after the first failure
+        retry_on=()          → retry on any Exception when max_retries > 0
+        retry_on=(SomeError,) → retry only those exceptions
+        retry_delay_base=1.0 → first retry after ~1s
+        retry_delay_max=60.0 → subsequent retries never wait longer than 60s
+    """
+    meta = skill.skill_meta
+    max_retries: int = meta.max_retries
+    retry_on: tuple[type[BaseException], ...] = meta.retry_on or (Exception,)
+    base: float = meta.retry_delay_base
+    max_delay: float = meta.retry_delay_max
+
+    last_exc: BaseException | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            if is_async_skill(skill):
+                return await skill.process(context)  # type: ignore[misc]
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, skill.process, context)
+
+        except BaseException as exc:
+            if max_retries == 0:
+                raise
+
+            if not isinstance(exc, retry_on):
+                raise
+
+            last_exc = exc
+
+            if attempt == max_retries:
+                break
+
+            raw_delay = base * (2 ** attempt)
+            capped_delay = min(raw_delay, max_delay)
+            jittered_delay = random.uniform(0, capped_delay)
+
+            log.warning(
+                "skill.retry",
+                skill=skill.name,
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                delay_seconds=round(jittered_delay, 2),
+                exception_type=type(exc).__name__,
+                exception_msg=str(exc)[:200],
+            )
+            await asyncio.sleep(jittered_delay)
+
+    assert last_exc is not None  # noqa: S101
+    raise last_exc
 
 
 def _get_sequential_steps(blueprint: Blueprint) -> list[Any]:

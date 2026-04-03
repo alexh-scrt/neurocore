@@ -58,13 +58,16 @@ class TavilySkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="tavily",
-        version="0.1.0",
+        version="0.1.1",
         description="Web search, URL extraction, and deep research via the Tavily API",
         author="NeuroCore Contributors",
         requires=["tavily-python>=0.5"],
         provides=["tavily_results"],
         consumes=["tavily_query", "tavily_urls"],
         tags=["search", "web", "research", "extract"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
         config_schema={
             "required": ["api_key"],
             "properties": {

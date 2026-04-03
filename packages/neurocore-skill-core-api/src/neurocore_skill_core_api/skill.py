@@ -45,13 +45,16 @@ class CoreApiSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="core-api",
-        version="0.1.0",
+        version="0.1.1",
         description="Search open-access research works via the CORE API v3",
         author="NeuroCore Contributors",
         requires=["httpx>=0.27"],
         provides=["core_works"],
         consumes=["core_query"],
         tags=["research", "academic", "open-access", "core"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
         config_schema={
             "required": ["api_key"],
             "properties": {

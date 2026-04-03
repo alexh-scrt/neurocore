@@ -55,11 +55,14 @@ class SageMathSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="sagemath",
-        version="0.1.0",
+        version="0.1.1",
         description="Execute SageMath expressions or scripts via the sage binary",
         provides=["sage_result"],
         consumes=["sage_code"],
         tags=["sagemath", "mathematics", "computer-algebra", "symbolic"],
+        max_retries=2,
+        retry_delay_base=5.0,
+        retry_delay_max=60.0,
         config_schema={
             "type": "object",
             "properties": {

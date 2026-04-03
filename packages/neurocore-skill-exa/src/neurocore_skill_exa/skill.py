@@ -51,13 +51,16 @@ class ExaSkill(AsyncSkill):
 
     skill_meta = SkillMeta(
         name="exa",
-        version="0.1.0",
+        version="0.1.1",
         description="Neural web search and find-similar via the Exa API",
         author="NeuroCore Contributors",
         requires=["exa-py>=1.1"],
         provides=["exa_results"],
         consumes=["exa_query"],
         tags=["search", "neural", "web", "exa"],
+        max_retries=3,
+        retry_delay_base=2.0,
+        retry_delay_max=30.0,
         config_schema={
             "required": ["api_key"],
             "properties": {

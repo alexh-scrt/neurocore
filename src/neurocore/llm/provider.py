@@ -195,6 +195,113 @@ class OpenAIProvider:
                 yield delta
 
 
+class GeminiProvider:
+    """Google Gemini provider using the google-genai SDK.
+
+    Install: pip install google-genai>=1.0
+    """
+
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash") -> None:
+        from google import genai as _genai
+
+        self._client = _genai.Client(api_key=api_key)
+        self._model = model
+
+    @property
+    def provider_name(self) -> str:
+        return "gemini"
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def _convert_messages(
+        self,
+        messages: list[LLMMessage],
+        system: str | None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Convert LLMMessage list to Gemini format.
+
+        Returns (contents_list, system_instruction).
+        System messages are extracted and merged into system_instruction.
+        """
+        system_parts: list[str] = []
+        if system:
+            system_parts.append(system)
+        contents: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg.role == "system":
+                system_parts.append(msg.content)
+            elif msg.role == "user":
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": msg.content}],
+                })
+            elif msg.role == "assistant":
+                contents.append({
+                    "role": "model",
+                    "parts": [{"text": msg.content}],
+                })
+        system_instruction = "\n\n".join(system_parts) if system_parts else None
+        return contents, system_instruction
+
+    async def complete(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 8192,
+        temperature: float = 1.0,
+        system: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        from google.genai import types as genai_types
+
+        contents, system_instruction = self._convert_messages(messages, system)
+        config = genai_types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+            system_instruction=system_instruction,
+        )
+        response = await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=contents,
+            config=config,
+        )
+        text = response.text or ""
+        usage = response.usage_metadata
+        return LLMResponse(
+            content=text,
+            model=self._model,
+            input_tokens=usage.prompt_token_count if usage else 0,
+            output_tokens=usage.candidates_token_count if usage else 0,
+        )
+
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 8192,
+        temperature: float = 1.0,
+        system: str | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        from google.genai import types as genai_types
+
+        contents, system_instruction = self._convert_messages(messages, system)
+        config = genai_types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+            system_instruction=system_instruction,
+        )
+        async for chunk in self._client.aio.models.generate_content_stream(
+            model=self._model,
+            contents=contents,
+            config=config,
+        ):
+            if chunk.text:
+                yield chunk.text
+
+
 class MockProvider:
     """Deterministic mock provider for testing. Never calls a real API."""
 
@@ -264,8 +371,11 @@ def build_provider(config: dict[str, Any]) -> LLMProvider | None:
         return AnthropicProvider(api_key=api_key, model=model or "claude-sonnet-4-6")
     if provider_name == "openai":
         return OpenAIProvider(api_key=api_key, model=model or "gpt-4o")
+    if provider_name == "gemini":
+        return GeminiProvider(api_key=api_key, model=model or "gemini-2.0-flash")
     if provider_name == "mock":
         return MockProvider(model=model or "mock-model")
     raise ValueError(
-        f"Unknown llm_provider: {provider_name!r}. Expected: anthropic | openai | mock"
+        f"Unknown llm_provider: {provider_name!r}. "
+        f"Expected: anthropic | openai | gemini | mock"
     )

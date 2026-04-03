@@ -5,6 +5,31 @@ All notable changes to NeuroCore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-04-03
+
+### Added
+
+#### GeminiProvider (NC-FIX-001)
+- `GeminiProvider` class implementing `LLMProvider` protocol using `google-genai` SDK
+- Automatic message format conversion (system → `system_instruction`, assistant → model role)
+- Async `complete()` and `stream()` via `client.aio.models.generate_content()`
+- `"gemini"` handled by `build_provider()` factory
+- `google-genai>=1.0` optional dependency group (`pip install neurocore-ai[gemini]`)
+- `neurocore-skill-gemini-auditor` — adversarial reproducibility auditor using Gemini
+- Updated `ac1-research.flow.yaml` blueprint: reviewer-auditor now uses Gemini provider
+
+#### Retry & Exponential Backoff (NC-FIX-002)
+- `max_retries`, `retry_delay_base`, `retry_delay_max`, `retry_on` fields on `SkillMeta`
+- Truncated exponential backoff with full jitter in `_run_skill_async()`
+- Warning-level structured logging on each retry attempt
+- `neurocore-skill-base` shared package with `RateLimitError`, `ServiceUnavailableError`, `check_response()`
+- All 13 research skill packages updated with retry configuration (v0.1.1)
+
+### Changed
+- Version bumped to 0.2.1
+- `build_provider()` error message now includes `gemini` in expected providers
+- `GeminiProvider` exported from `neurocore.llm` package
+
 ## [0.2.0] — 2026-04-03
 
 ### Added
