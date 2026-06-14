@@ -28,6 +28,12 @@ neurocore run blueprints/agent.flow.yaml
 :caption: Guides
 
 tutorial
+concepts
 architecture
+providers
+persistence-and-runs
+human-in-the-loop
+skill-authoring
+why-not-langgraph
 changelog
 ```

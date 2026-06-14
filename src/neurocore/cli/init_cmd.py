@@ -20,26 +20,10 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from neurocore.scaffold.render import TEMPLATES_DIR as _TEMPLATES_DIR
+from neurocore.scaffold.render import render_template as _render_template
+
 console = Console()
-
-# Template directory relative to this file
-_TEMPLATES_DIR = Path(__file__).parent.parent / "scaffold" / "templates"
-
-
-def _render_template(template_path: Path, context: dict[str, str]) -> str:
-    """Simple Jinja2-style template rendering ({{ var }} only).
-
-    Args:
-        template_path: Path to the template file.
-        context: Mapping of variable names to values.
-
-    Returns:
-        Rendered template string.
-    """
-    content = template_path.read_text()
-    for key, value in context.items():
-        content = content.replace(f"{{{{ {key} }}}}", value)
-    return content
 
 
 def init_project(

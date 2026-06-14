@@ -1,0 +1,42 @@
+# Self-hosted NeuroCore stack: a local LLM (Ollama) + a vector DB (Qdrant).
+# Run a blueprint against the local model with no cloud API key:
+#
+#   docker compose run --rm neurocore run blueprints/chat.flow.yaml \
+#     --data query="Summarize the CAP theorem."
+#
+# (First pull a model:  docker compose exec ollama ollama pull llama3.2)
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant:/qdrant/storage
+
+  neurocore:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      - ollama
+      - qdrant
+    working_dir: /project
+    volumes:
+      - ./:/project
+    environment:
+      # Point the OpenAI-compatible provider at the Ollama service.
+      NEUROCORE_LLM__BASE_URL: "http://ollama:11434/v1"
+    entrypoint: ["neurocore"]
+    command: ["--help"]
+
+volumes:
+  ollama:
+  qdrant:

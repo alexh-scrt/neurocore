@@ -1,0 +1,36 @@
+name: "{{ project_name }}-debate"
+version: "1.0"
+description: "Proposer → Critic → Judge debate over a topic."
+components:
+  - name: proposer
+    type: agent
+    config:
+      system: "You argue FOR the proposition. Be persuasive and concrete."
+      input_key: topic
+      output_key: proposal
+  - name: critic
+    type: agent
+    config:
+      system: "You rebut the proposal with the strongest counter-arguments."
+      input_key: proposal
+      output_key: critique
+  - name: judge
+    type: agent
+    config:
+      system: "Weigh the proposal against the critique and declare a winner with reasons."
+      input_key: critique
+      output_key: verdict
+flow:
+  type: graph
+  nodes:
+    - id: proposer
+      component: proposer
+    - id: critic
+      component: critic
+    - id: judge
+      component: judge
+  edges:
+    - source: proposer
+      target: critic
+    - source: critic
+      target: judge

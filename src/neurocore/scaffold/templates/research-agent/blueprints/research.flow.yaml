@@ -1,0 +1,21 @@
+name: "{{ project_name }}-research"
+version: "1.0"
+description: "Web + arXiv research, then a summarized, cited answer."
+# Requires:  pip install neurocore-skill-tavily neurocore-skill-arxiv
+components:
+  - name: search
+    type: tavily
+    config:
+      max_results: 5
+  - name: papers
+    type: arxiv
+    config:
+      max_results: 5
+  - name: summarize
+    type: summarize
+flow:
+  type: sequential
+  steps:
+    - component: search
+    - component: papers
+    - component: summarize

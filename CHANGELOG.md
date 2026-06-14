@@ -5,6 +5,69 @@ All notable changes to NeuroCore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-06-14
+
+Turns NeuroCore from a framework into a production agent **runtime**: local-LLM
+providers, durable run history with resume/replay, human-approval gates, MCP
+tool-calling, and template scaffolding. All changes are backward-compatible.
+
+### Added
+
+#### OpenAI-compatible, Ollama, vLLM & LiteLLM providers
+- `OpenAIProvider` now accepts `base_url` and a configurable `provider_name`
+- `build_provider()` aliases `openai-compatible`, `ollama`, `vllm` (sensible
+  default base URLs for the latter two) — all speak the OpenAI wire format
+- `LiteLLMProvider` for routing to 100+ model APIs
+- `LLMConfig` gains `base_url` and `api_key_env` (resolved from the environment);
+  `get_skill_config()` injects `llm_base_url`
+- New extras: `litellm`, `local`, `all-providers`
+
+#### Durable run history & persistence (`neurocore.persistence`)
+- `RunStore` ABC with `SQLiteRunStore` (stdlib `sqlite3`, default) and
+  `InMemoryRunStore` backends; `RunRecord` / `StepRecord` Pydantic models
+- `build_run_store()` factory and `PersistenceConfig` (`enabled`, `backend`,
+  `path`, `persist_step_snapshots`); `NeuroCoreConfig.runs_db_path`
+- Adapter exposing a `RunStore` as a flowengine `CheckpointStore`
+
+#### Executor tracking, resume & replay
+- `execute_blueprint_tracked()` records a run + per-step history across the
+  sequential, DAG, and FlowEngine paths; `metadata.completed_nodes` now populated
+- `resume_blueprint()` resumes suspended or failed runs, skipping completed steps
+- `load_and_run(..., track=True)` persists by default
+
+#### Human-in-the-loop approval gate
+- Built-in `ApprovalSkill` (always discoverable) that suspends a run for sign-off
+- `approval:` blueprint step sugar desugaring to the built-in skill
+
+#### `neurocore runs` and `neurocore mcp` CLI
+- `runs list / inspect / replay / resume / approve` (run-id prefix matching)
+- `neurocore run --stream` renders human-readable progress (JSONL with `--json`)
+- `neurocore mcp list-tools / call` (via the optional `neurocore-skill-mcp`)
+
+#### Template scaffolding
+- `neurocore new <template> <name>` with templates: `rag-agent`,
+  `research-agent`, `ollama-agent`, `multi-agent-debate`, `tool-agent`;
+  `neurocore new --list`
+
+#### MCP tool-calling
+- `neurocore-skill-mcp` package — invoke MCP server tools (stdio + streamable
+  HTTP) from a blueprint via `type: mcp-tool`
+
+#### Examples & deployment
+- `examples/local-ollama-agent` (with `docker-compose.yaml`) and
+  `examples/human-approval-agent`; root `Dockerfile`
+
+#### Docs
+- New guides: concepts, providers, persistence-and-runs, human-in-the-loop,
+  skill-authoring, and "NeuroCore vs LangGraph"; README rewritten around a
+  5-minute demo
+
+### Changed
+- Version bumped to 0.3.0
+- `LLMProvider.stream` Protocol signature fixed so concrete async-generator
+  providers type-check cleanly
+- Scaffold templates excluded from the library's ruff/mypy surface
+
 ## [0.2.1] — 2026-04-03
 
 ### Added

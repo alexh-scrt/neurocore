@@ -1,0 +1,19 @@
+project:
+  name: "human-approval-agent"
+  version: "0.1.0"
+
+paths:
+  skills: "skills"
+  blueprints: "blueprints"
+  data: "data"
+  logs: "logs"
+
+logging:
+  level: "INFO"
+  format: "console"
+
+persistence:
+  enabled: true
+  backend: "sqlite"
+
+skills: {}

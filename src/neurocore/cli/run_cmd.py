@@ -57,6 +57,33 @@ def _parse_data_args(data: list[str]) -> dict[str, str]:
     return result
 
 
+def _render_stream_event(event: object) -> None:
+    """Render a FlowEvent as a human-readable progress line."""
+    from neurocore.runtime.events import FlowEventType
+
+    et = event.event_type  # type: ignore[attr-defined]
+    name = event.step_name  # type: ignore[attr-defined]
+    dur = event.duration_ms  # type: ignore[attr-defined]
+    dur_s = f" {dur / 1000:.2f}s" if dur is not None else ""
+    # NOTE: escape the literal "[label]" brackets (\[) so rich doesn't parse
+    # them as markup tags.
+    if et == FlowEventType.FLOW_STARTED:
+        bp_name = event.data.get("blueprint", "")  # type: ignore[attr-defined]
+        output_console.print(f"[bold cyan]\\[flow started][/bold cyan] {bp_name}")
+    elif et == FlowEventType.STEP_STARTED:
+        output_console.print(f"[dim]\\[step started][/dim] {name}")
+    elif et == FlowEventType.STEP_COMPLETED:
+        output_console.print(f"[green]\\[step completed][/green] {name}{dur_s}")
+    elif et == FlowEventType.STEP_FAILED:
+        err = event.error or ""  # type: ignore[attr-defined]
+        output_console.print(f"[red]\\[step failed][/red] {name}{dur_s} — {err}")
+    elif et == FlowEventType.FLOW_COMPLETED:
+        output_console.print(f"[bold green]\\[flow completed][/bold green]{dur_s}")
+    elif et == FlowEventType.FLOW_FAILED:
+        err = event.error or ""  # type: ignore[attr-defined]
+        output_console.print(f"[bold red]\\[flow failed][/bold red]{dur_s} — {err}")
+
+
 def run_blueprint(
     blueprint: Path = typer.Argument(
         help="Path to the blueprint YAML file.",
@@ -99,7 +126,6 @@ def run_blueprint(
     from neurocore.config.loader import load_config
     from neurocore.runtime.blueprint import load_blueprint
     from neurocore.runtime.executor import (
-        execute_blueprint as exec_bp,
         execute_blueprint_stream,
         load_and_run,
     )
@@ -120,7 +146,7 @@ def run_blueprint(
 
     try:
         if stream:
-            # Stream mode: print JSONL events
+            # Stream mode: human-readable lines by default, JSONL with --json.
             neurocore_config = load_config(project_root=project_root)
             registry = discover_skills(neurocore_config)
             bp = load_blueprint(blueprint_path)
@@ -129,9 +155,12 @@ def run_blueprint(
                 async for event in execute_blueprint_stream(
                     bp, registry, neurocore_config, initial_data
                 ):
-                    line = json.dumps(event.to_dict(), default=str)
-                    sys.stdout.write(line + "\n")
-                    sys.stdout.flush()
+                    if output_json:
+                        line = json.dumps(event.to_dict(), default=str)
+                        sys.stdout.write(line + "\n")
+                        sys.stdout.flush()
+                    else:
+                        _render_stream_event(event)
 
             asyncio.run(_stream())
         else:

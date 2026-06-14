@@ -1,0 +1,12 @@
+name: "local-ollama-chat"
+version: "1.0"
+description: "Single-step chat against a local Ollama model."
+components:
+  - name: chat
+    type: chat
+    config:
+      system: "You are a concise, helpful assistant."
+flow:
+  type: sequential
+  steps:
+    - component: chat

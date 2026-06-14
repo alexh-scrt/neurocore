@@ -63,4 +63,34 @@ def test_get_skill_config_no_injection_when_project_llm_empty():
     )
     result = config.get_skill_config("my-skill")
     assert "llm_provider" not in result
+    assert "llm_base_url" not in result
     assert result["custom"] == "val"
+
+
+def test_get_skill_config_injects_base_url():
+    config = NeuroCoreConfig(
+        llm=LLMConfig(provider="ollama", model="llama3.3", base_url="http://x/v1"),
+    )
+    result = config.get_skill_config("my-skill")
+    assert result["llm_provider"] == "ollama"
+    assert result["llm_base_url"] == "http://x/v1"
+
+
+def test_get_skill_config_resolves_api_key_env(monkeypatch):
+    monkeypatch.setenv("MY_LLM_KEY", "sk-from-env")
+    config = NeuroCoreConfig(
+        llm=LLMConfig(provider="openai", model="gpt-4o", api_key_env="MY_LLM_KEY"),
+    )
+    result = config.get_skill_config("my-skill")
+    assert result["llm_api_key"] == "sk-from-env"
+
+
+def test_get_skill_config_literal_api_key_wins_over_env(monkeypatch):
+    monkeypatch.setenv("MY_LLM_KEY", "sk-from-env")
+    config = NeuroCoreConfig(
+        llm=LLMConfig(
+            provider="openai", model="gpt-4o", api_key="sk-literal", api_key_env="MY_LLM_KEY"
+        ),
+    )
+    result = config.get_skill_config("my-skill")
+    assert result["llm_api_key"] == "sk-literal"

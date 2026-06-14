@@ -194,6 +194,9 @@ def discover_skills(
     if registry is None:
         registry = SkillRegistry()
 
+    # Phase 0: Built-in skills (always available; overridable by user skills)
+    _register_builtins(registry)
+
     # Phase 1: Directory scan (lower priority)
     discover_directory(config.skills_dir, registry=registry)
 
@@ -201,3 +204,14 @@ def discover_skills(
     discover_entry_points(registry=registry)
 
     return registry
+
+
+def _register_builtins(registry: SkillRegistry) -> None:
+    """Register NeuroCore's built-in skills (e.g. the approval gate)."""
+    import contextlib
+
+    from neurocore.skills.builtin import BUILTIN_SKILLS
+
+    for skill_class in BUILTIN_SKILLS:
+        with contextlib.suppress(SkillError):
+            registry.register(skill_class, replace=True)

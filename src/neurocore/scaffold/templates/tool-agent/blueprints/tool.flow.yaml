@@ -1,0 +1,22 @@
+name: "{{ project_name }}-tool"
+version: "1.0"
+description: "Invoke an MCP server tool with arguments from context."
+# Requires:  pip install neurocore-skill-mcp
+components:
+  - name: github_tool
+    type: mcp-tool
+    config:
+      transport: stdio
+      command: "docker"
+      args: ["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "ghcr.io/github/github-mcp-server"]
+      env:
+        GITHUB_TOKEN: "${GITHUB_TOKEN}"
+      tool: "create_issue"
+      # Static args; merge/override at runtime via the `mcp_arguments` context key.
+      arguments:
+        owner: "octocat"
+        repo: "hello-world"
+flow:
+  type: sequential
+  steps:
+    - component: github_tool

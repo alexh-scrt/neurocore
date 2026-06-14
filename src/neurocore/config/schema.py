@@ -25,6 +25,7 @@ underscore for nesting: ``NEUROCORE_LOGGING__LEVEL=DEBUG``
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -90,11 +91,23 @@ class LoggingConfig(BaseModel):
 class LLMConfig(BaseModel):
     """Project-level LLM configuration shared across all skills that set requires_llm=True."""
 
-    provider: str = ""  # "anthropic" | "openai" | "mock" | ""
+    # anthropic | openai | openai-compatible | ollama | vllm | litellm | gemini | mock | ""
+    provider: str = ""
     model: str = ""  # provider-specific model identifier
     api_key: str = ""  # read from env: NEUROCORE_LLM__API_KEY
+    api_key_env: str = ""  # name of env var holding the key (e.g. OLLAMA_API_KEY)
+    base_url: str = ""  # endpoint for openai-compatible / ollama / vllm / litellm
     max_tokens: int = 8192
     temperature: float = 1.0
+
+
+class PersistenceConfig(BaseModel):
+    """Run-history persistence configuration."""
+
+    enabled: bool = True
+    backend: str = "sqlite"  # sqlite | memory
+    path: str = "runs.db"  # relative to the data directory
+    persist_step_snapshots: bool = False  # store a FlowContext snapshot per step
 
 
 class NeuroCoreConfig(BaseModel):
@@ -118,6 +131,7 @@ class NeuroCoreConfig(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     skills: dict[str, dict[str, Any]] = Field(default_factory=dict)
     project_root: Path = Field(default_factory=lambda: Path.cwd())
 
@@ -158,6 +172,14 @@ class NeuroCoreConfig(BaseModel):
         """Resolved absolute path to the logs directory."""
         return self.resolve_path(self.paths.logs)
 
+    @property
+    def runs_db_path(self) -> Path:
+        """Resolved absolute path to the run-history database."""
+        p = Path(self.persistence.path)
+        if p.is_absolute():
+            return p
+        return self.data_dir / p
+
     def get_skill_config(self, skill_name: str) -> dict[str, Any]:
         """Get configuration for a specific skill.
 
@@ -173,10 +195,14 @@ class NeuroCoreConfig(BaseModel):
         skill_cfg = dict(self.skills.get(skill_name, {}))
         # Project LLM config fills in missing keys — skill config wins
         if self.llm.provider and "llm_provider" not in skill_cfg:
+            api_key = self.llm.api_key
+            if not api_key and self.llm.api_key_env:
+                api_key = os.environ.get(self.llm.api_key_env, "")
             skill_cfg = {
                 "llm_provider": self.llm.provider,
                 "llm_model": self.llm.model,
-                "llm_api_key": self.llm.api_key,
+                "llm_api_key": api_key,
+                "llm_base_url": self.llm.base_url,
                 **skill_cfg,
             }
         return skill_cfg

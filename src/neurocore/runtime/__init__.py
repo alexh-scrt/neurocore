@@ -15,14 +15,18 @@ from neurocore.runtime.blueprint import (
 )
 from neurocore.runtime.executor import (
     execute_blueprint,
+    execute_blueprint_tracked,
     load_and_run,
     merge_skill_config,
+    resume_blueprint,
 )
 
 __all__ = [
     "Blueprint",
     "BlueprintComponent",
     "execute_blueprint",
+    "execute_blueprint_tracked",
+    "resume_blueprint",
     "load_and_run",
     "load_blueprint",
     "merge_skill_config",

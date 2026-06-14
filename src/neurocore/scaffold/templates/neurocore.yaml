@@ -5,9 +5,11 @@ project:
 
 # LLM configuration (shared across all skills with requires_llm=True)
 llm:
-  provider: ""          # anthropic | openai | mock
+  provider: ""          # anthropic | openai | openai-compatible | ollama | vllm | litellm | gemini | mock
   model: ""
   api_key: ""           # or set NEUROCORE_LLM__API_KEY env var
+  api_key_env: ""       # name of env var holding the key (e.g. OLLAMA_API_KEY)
+  base_url: ""          # endpoint for openai-compatible/ollama/vllm (e.g. http://localhost:11434/v1)
 
 # Paths (relative to project root, resolved at load time)
 paths:

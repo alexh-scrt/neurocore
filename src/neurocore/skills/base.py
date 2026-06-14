@@ -113,6 +113,25 @@ class Skill(BaseComponent):
 
     skill_meta: ClassVar[SkillMeta]
 
+    def get_meta(self) -> Any:
+        """Derive a FlowEngine ``ComponentMeta`` from this skill's ``SkillMeta``.
+
+        This is the NeuroCore → FlowEngine bridge: it lets skills participate in
+        FlowEngine's agent-native tooling (semantic validation, the component
+        catalog, planning) using the same metadata they already declare. The
+        mapping is::
+
+            SkillMeta.provides     -> ComponentMeta.outputs (keys)
+            SkillMeta.consumes     -> ComponentMeta.inputs  (keys)
+            SkillMeta.tags         -> ComponentMeta.tags
+            SkillMeta.config_schema-> ComponentMeta.config_schema
+            SkillMeta.requires_llm -> ComponentMeta.requires_llm
+
+        Returns ``None`` if FlowEngine is too old to expose ``ComponentMeta``
+        (i.e. it pre-dates the v0.5.0 agent API).
+        """
+        return skillmeta_to_componentmeta(self._get_meta())
+
     def __init__(self, name: str | None = None) -> None:
         """Initialize skill with a name.
 
@@ -198,6 +217,29 @@ class Skill(BaseComponent):
         if meta:
             return f"{self.__class__.__name__}(name={self.name!r}, version={meta.version!r})"
         return f"{self.__class__.__name__}(name={self.name!r})"
+
+
+def skillmeta_to_componentmeta(meta: SkillMeta) -> Any:
+    """Map a :class:`SkillMeta` to a FlowEngine ``ComponentMeta``.
+
+    Returns ``None`` if the installed FlowEngine predates the agent-native API
+    (``flowengine.agent.meta`` / v0.5.0), so callers degrade gracefully.
+    """
+    try:
+        from flowengine.agent.meta import ComponentMeta, IOFieldSpec
+    except ImportError:
+        return None
+
+    return ComponentMeta(
+        name=meta.name,
+        description=meta.description,
+        version=meta.version,
+        inputs={key: IOFieldSpec(type="any") for key in meta.consumes},
+        outputs={key: IOFieldSpec(type="any") for key in meta.provides},
+        tags=list(meta.tags),
+        config_schema=dict(meta.config_schema),
+        requires_llm=meta.requires_llm,
+    )
 
 
 def _check_json_type(value: Any, json_type: str) -> bool:

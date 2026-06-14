@@ -3,11 +3,17 @@
 Top-level Typer app that registers all sub-commands.
 
 Commands:
-    neurocore init <name>           — scaffold a new project
+    neurocore init <name>           — scaffold a blank project
+    neurocore new <template> <name> — scaffold from a template
     neurocore run <blueprint>       — execute a blueprint
     neurocore skill list            — list discovered skills
     neurocore skill info <name>     — show skill details
     neurocore validate <blueprint>  — validate without executing
+    neurocore runs list             — list recorded runs
+    neurocore runs inspect <id>     — show a run's history
+    neurocore runs replay <id>      — re-execute a stored run
+    neurocore runs resume <id>      — resume a suspended/failed run
+    neurocore runs approve <id>     — approve a suspended approval gate
     neurocore --version             — show version
 """
 
@@ -17,7 +23,10 @@ import typer
 
 from neurocore import __version__
 from neurocore.cli.init_cmd import init_project
+from neurocore.cli.mcp_cmd import mcp_app
+from neurocore.cli.new_cmd import new_project
 from neurocore.cli.run_cmd import run_blueprint
+from neurocore.cli.runs_cmd import runs_app
 from neurocore.cli.skill_cmd import skill_app
 from neurocore.cli.validate_cmd import validate_blueprint_cmd
 
@@ -30,9 +39,12 @@ app = typer.Typer(
 
 # Register commands
 app.command("init")(init_project)
+app.command("new")(new_project)
 app.command("run")(run_blueprint)
 app.command("validate")(validate_blueprint_cmd)
 app.add_typer(skill_app, name="skill")
+app.add_typer(runs_app, name="runs")
+app.add_typer(mcp_app, name="mcp")
 
 
 def version_callback(value: bool) -> None:

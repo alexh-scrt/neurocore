@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neurocore-ai"
-version = "0.2.1"
+version = "0.3.0"
 description = "Pluggable, YAML-driven framework for building agentic AI applications"
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,7 +34,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "flowengine>=0.4.1",
+    "flowengine>=0.5.0",
     "pyyaml>=6.0",
     "pydantic-settings>=2.7",
     "structlog>=25.5.0",
@@ -47,12 +47,18 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
 gemini = ["google-genai>=1.0"]
+litellm = ["litellm>=1.50"]
+# Local OpenAI-compatible gateways (Ollama, vLLM, LM Studio, ...) speak the
+# OpenAI wire protocol, so they only need the openai SDK.
+local = ["openai>=1.0"]
+all-providers = ["openai>=1.0", "google-genai>=1.0", "litellm>=1.50"]
 dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "pytest-mock>=3.14",
     "pytest-asyncio>=0.24",
     "openai>=1.0",
+    "litellm>=1.50",
     "ruff>=0.8",
     "mypy>=1.8",
     "types-PyYAML>=6.0",
@@ -90,6 +96,8 @@ asyncio_mode = "auto"
 target-version = "py313"
 line-length = 100
 src = ["src", "tests"]
+# Template content is copied into generated projects, not library code.
+extend-exclude = ["src/neurocore/scaffold/templates"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
@@ -100,7 +108,12 @@ python_version = "3.13"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
-exclude = ["tests/", "packages/"]
+exclude = ["tests/", "packages/", "src/neurocore/scaffold/templates/"]
+
+# Optional packages without type stubs (installed only via extras / skill plugins).
+[[tool.mypy.overrides]]
+module = ["litellm", "litellm.*", "neurocore_skill_mcp", "neurocore_skill_mcp.*"]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["src/neurocore"]

@@ -177,6 +177,57 @@ class Blueprint(BaseModel):
         return self
 
 
+def _normalize_blueprint(data: dict[str, Any]) -> dict[str, Any]:
+    """Desugar blueprint shorthand into the canonical model shape.
+
+    Currently supports the ``approval:`` flow-step sugar::
+
+        flow:
+          steps:
+            - component: draft
+            - approval: {name: human_review, require: true}
+            - component: send
+
+    Each ``approval:`` step is rewritten into a normal step referencing a
+    synthesized ``approval``-type component, so the rest of the pipeline
+    (validation, execution) needs no special cases.
+    """
+    flow = data.get("flow")
+    if not isinstance(flow, dict):
+        return data
+    steps = flow.get("steps")
+    if not isinstance(steps, list):
+        return data
+
+    components = data.setdefault("components", [])
+    if not isinstance(components, list):
+        return data
+    existing = {c.get("name") for c in components if isinstance(c, dict)}
+
+    new_steps: list[Any] = []
+    for step in steps:
+        if isinstance(step, dict) and "approval" in step:
+            spec = step["approval"] or {}
+            if not isinstance(spec, dict):
+                raise BlueprintError("'approval' step must be a mapping.")
+            name = spec.get("name", "approval")
+            config: dict[str, Any] = {}
+            if "message" in spec:
+                config["message"] = spec["message"]
+            if "require" in spec:
+                config["require"] = spec["require"]
+            if name not in existing:
+                components.append(
+                    {"name": name, "type": "approval", "config": config}
+                )
+                existing.add(name)
+            new_steps.append({"component": name})
+        else:
+            new_steps.append(step)
+    flow["steps"] = new_steps
+    return data
+
+
 def load_blueprint(path: Path) -> Blueprint:
     """Load and parse a blueprint YAML file.
 
@@ -201,6 +252,7 @@ def load_blueprint(path: Path) -> Blueprint:
     if not isinstance(data, dict):
         raise BlueprintError(f"Blueprint must be a YAML mapping, got {type(data).__name__}")
 
+    data = _normalize_blueprint(data)
     try:
         return Blueprint(**data)
     except Exception as e:

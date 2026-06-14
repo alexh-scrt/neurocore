@@ -63,6 +63,63 @@ def test_build_provider_unknown_raises_value_error():
         build_provider({"llm_provider": "foobar"})
 
 
+# ---- OpenAI-compatible / Ollama / vLLM (A1) -------------------------------
+
+def test_build_provider_openai_compatible_sets_base_url():
+    pytest.importorskip("openai")
+    provider = build_provider({
+        "llm_provider": "openai-compatible",
+        "llm_base_url": "http://localhost:9999/v1",
+        "llm_model": "my-model",
+    })
+    assert provider is not None
+    assert provider.provider_name == "openai-compatible"
+    assert provider.model == "my-model"
+    assert str(provider._client.base_url).rstrip("/") == "http://localhost:9999/v1"
+
+
+def test_build_provider_ollama_uses_default_base_url():
+    pytest.importorskip("openai")
+    provider = build_provider({"llm_provider": "ollama", "llm_model": "llama3.3"})
+    assert provider is not None
+    assert provider.provider_name == "ollama"
+    assert "11434" in str(provider._client.base_url)
+
+
+def test_build_provider_vllm_uses_default_base_url():
+    pytest.importorskip("openai")
+    provider = build_provider({"llm_provider": "vllm", "llm_model": "x"})
+    assert provider is not None
+    assert provider.provider_name == "vllm"
+    assert "8000" in str(provider._client.base_url)
+
+
+def test_build_provider_openai_compatible_requires_base_url():
+    pytest.importorskip("openai")
+    with pytest.raises(ValueError, match="requires a base_url"):
+        build_provider({"llm_provider": "openai-compatible", "llm_model": "x"})
+
+
+def test_openai_provider_positional_call_backward_compatible():
+    pytest.importorskip("openai")
+    from neurocore.llm.provider import OpenAIProvider
+
+    provider = OpenAIProvider("sk-test", "gpt-4o")
+    assert provider.provider_name == "openai"
+    assert provider.model == "gpt-4o"
+
+
+def test_build_provider_litellm():
+    pytest.importorskip("litellm")
+    provider = build_provider({
+        "llm_provider": "litellm",
+        "llm_model": "gpt-4o",
+        "llm_api_key": "sk-test",
+    })
+    assert provider is not None
+    assert provider.provider_name == "litellm"
+
+
 def test_llm_provider_protocol_satisfied_by_mock():
     provider = MockProvider()
     assert isinstance(provider, LLMProvider)

@@ -124,6 +124,28 @@ class SkillRegistry:
             for cls in sorted(self._skills.values(), key=lambda c: c.skill_meta.name)
         ]
 
+    def component_catalog(self) -> list[dict[str, Any]]:
+        """Return a FlowEngine-style component catalog for all registered skills.
+
+        Each entry is the skill's :class:`SkillMeta` mapped to a FlowEngine
+        ``ComponentMeta`` catalog entry (inputs/outputs/tags/risk/...), so
+        NeuroCore skills surface alongside native FlowEngine components for
+        agent-driven flow composition. Skills are included by their registered
+        name (the ``type`` an agent uses in YAML). Returns an empty list if the
+        installed FlowEngine predates the v0.5.0 agent API.
+        """
+        from neurocore.skills.base import skillmeta_to_componentmeta
+
+        catalog: list[dict[str, Any]] = []
+        for name in self.list_skills():
+            cmeta = skillmeta_to_componentmeta(self._skills[name].skill_meta)
+            if cmeta is None:
+                return []
+            entry = cmeta.to_catalog_entry()
+            entry["type"] = name
+            catalog.append(entry)
+        return catalog
+
     def create(self, name: str, *, instance_name: str | None = None) -> Skill:
         """Create an instance of a registered skill.
 

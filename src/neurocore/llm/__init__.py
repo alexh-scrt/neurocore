@@ -2,6 +2,7 @@
 from neurocore.llm.provider import (
     AnthropicProvider,
     GeminiProvider,
+    LiteLLMProvider,
     LLMMessage,
     LLMProvider,
     LLMResponse,
@@ -17,6 +18,7 @@ __all__ = [
     "AnthropicProvider",
     "GeminiProvider",
     "OpenAIProvider",
+    "LiteLLMProvider",
     "MockProvider",
     "build_provider",
 ]

@@ -22,6 +22,15 @@ from neurocore.skills.loader import (
 )
 from neurocore.skills.registry import SkillRegistry
 
+from neurocore.skills.builtin import BUILTIN_SKILLS
+
+BUILTIN_NAMES = {s.skill_meta.name for s in BUILTIN_SKILLS}
+
+
+def _non_builtin_count(registry: SkillRegistry) -> int:
+    """Count of discovered skills excluding always-registered built-ins."""
+    return len(set(registry.list_skills()) - BUILTIN_NAMES)
+
 
 # --- Helpers: create skill files on disk ---
 
@@ -281,7 +290,7 @@ class TestDiscoverSkills:
 
         assert "echo" in registry
         assert "ep-skill" in registry
-        assert len(registry) == 2
+        assert _non_builtin_count(registry) == 2
 
     def test_entry_point_overrides_directory(self, skills_dir: Path):
         """Entry point skill with same name replaces directory skill."""
@@ -317,7 +326,7 @@ class TestDiscoverSkills:
         with patch("neurocore.skills.loader.entry_points", return_value=[]):
             registry = discover_skills(config)
 
-        assert len(registry) == 0
+        assert _non_builtin_count(registry) == 0
 
     def test_passes_existing_registry(self, skills_dir: Path):
         (skills_dir / "echo.py").write_text(ECHO_SKILL_CODE)

@@ -29,6 +29,10 @@ By the end of this tutorial you will have built:
 - [Part 8: Multi-Agent Parallel Architecture](#part-8-multi-agent-parallel-architecture)
 - [Part 9: Packaging and Distribution](#part-9-packaging-and-distribution)
 - [Part 10: Deployment and Operations](#part-10-deployment-and-operations)
+- [Part 11: Local Models & Provider Injection](#part-11-local-models--provider-injection)
+- [Part 12: Run History, Replay & Resume](#part-12-run-history-replay--resume)
+- [Part 13: Human-in-the-Loop Approval Gates](#part-13-human-in-the-loop-approval-gates)
+- [Part 14: Templates & MCP Tools](#part-14-templates--mcp-tools)
 
 ---
 
@@ -62,7 +66,7 @@ pip install -e "./neurocore[dev]"
 
 # Verify
 neurocore --version
-# neurocore 0.1.0
+# neurocore 0.3.0
 ```
 
 ### 1.3 Scaffold Your First Project
@@ -1468,6 +1472,12 @@ neurocore run blueprints/chat-openai.flow.yaml \
   --data prompt="Hello" --data provider=mock
 ```
 
+> **Tip:** This part builds a custom multi-provider skill for teaching. In most
+> apps you don't need to — set a project-level `llm:` block in `neurocore.yaml`
+> and any skill with `requires_llm=True` gets an injected `self.llm`. That path
+> also supports local models (Ollama/vLLM/OpenAI-compatible) and LiteLLM. See
+> [Part 11](#part-11-local-models--provider-injection).
+
 ### 7.5 Switching Providers via Environment
 
 Override the provider at runtime without changing files:
@@ -2332,30 +2342,216 @@ docker compose logs agent
 
 ---
 
+## Part 11: Local Models & Provider Injection
+
+Skills that set `requires_llm=True` receive a ready-to-use `self.llm`. You pick
+the backend once, in `neurocore.yaml` — no per-skill provider code.
+
+```yaml
+# neurocore.yaml — cloud
+llm:
+  provider: anthropic        # anthropic | openai | gemini | ollama | vllm | openai-compatible | litellm | mock
+  model: claude-sonnet-4-6
+  api_key_env: ANTHROPIC_API_KEY   # name of the env var holding the key
+```
+
+### Run a local model — no cloud key
+
+`ollama`, `vllm`, and `openai-compatible` all speak the OpenAI wire format:
+
+```yaml
+# neurocore.yaml — local via Ollama
+llm:
+  provider: ollama                 # default base_url http://localhost:11434/v1
+  model: llama3.2
+  base_url: http://localhost:11434/v1
+  api_key_env: OLLAMA_API_KEY      # Ollama ignores it; any value works
+```
+
+```bash
+pip install "neurocore-ai[local]"
+ollama serve & ; ollama pull llama3.2
+neurocore run blueprints/chat.flow.yaml --data query="Explain the CAP theorem."
+```
+
+For any OpenAI-compatible gateway (LM Studio, Together, Groq, Fireworks,
+OpenRouter, …), use `provider: openai-compatible` and set `base_url`. For routing
+across 100+ APIs, use `provider: litellm` (`pip install "neurocore-ai[litellm]"`).
+
+### A minimal LLM skill
+
+```python
+from neurocore import AsyncSkill, SkillMeta
+from neurocore.llm.provider import LLMMessage
+
+class ChatSkill(AsyncSkill):
+    skill_meta = SkillMeta(name="chat", version="0.1.0",
+                           requires_llm=True, consumes=["query"], provides=["answer"])
+
+    async def process(self, context):
+        resp = await self.llm.complete(
+            [LLMMessage(role="user", content=context.get("query", ""))]
+        )
+        context.set("answer", resp.content)
+        return context
+```
+
+---
+
+## Part 12: Run History, Replay & Resume
+
+With persistence enabled (default), every run is recorded to SQLite at
+`data/runs.db` — turning NeuroCore into an operable runtime.
+
+```yaml
+# neurocore.yaml
+persistence:
+  enabled: true
+  backend: sqlite        # sqlite | memory
+  path: runs.db          # relative to the data dir
+```
+
+```bash
+neurocore run blueprints/research.flow.yaml --data query="..."
+neurocore runs list                       # newest-first table
+neurocore runs inspect <run_id> --full    # header + per-step table + final context
+neurocore runs replay <run_id>            # re-run from original inputs (new run)
+neurocore run blueprints/research.flow.yaml --stream   # live progress lines
+```
+
+Run ids may be abbreviated to any unique prefix. Programmatically:
+
+```python
+from neurocore.runtime.executor import execute_blueprint_tracked, resume_blueprint
+from neurocore.persistence import build_run_store, RunStatus
+
+store = build_run_store(config)
+ctx = execute_blueprint_tracked(blueprint, registry, config, run_store=store)
+for run in store.list_runs(status=RunStatus.FAILED):
+    resume_blueprint(run.run_id, registry, config, run_store=store)  # retry from failed step
+```
+
+A `failed` run resumes from the failed step (completed steps are skipped); a
+`suspended` run continues from its approval gate.
+
+---
+
+## Part 13: Human-in-the-Loop Approval Gates
+
+Pause a run for a human decision with the built-in `approval` skill. Use the
+`approval:` step sugar:
+
+```yaml
+flow:
+  type: sequential
+  steps:
+    - component: draft_answer
+    - approval:
+        name: human_review
+        message: "Approve sending this?"
+        require: true        # a rejection fails the run
+    - component: send_email
+```
+
+```bash
+neurocore run blueprints/approve.flow.yaml --data topic="delete prod database"
+neurocore runs list --status suspended
+neurocore runs approve <run_id> --by you@example.com
+#   neurocore runs approve <run_id> --reject --note "too risky"
+```
+
+On approve, the run resumes from the gate; the decision (`approved`, `note`,
+`by`) is written to the `approval` context key for downstream skills.
+
+---
+
+## Part 14: Templates & MCP Tools
+
+### Scaffold from a template
+
+`neurocore new` creates a runnable starter project:
+
+```bash
+neurocore new --list                       # show templates
+neurocore new research-agent my-agent      # rag-agent | research-agent | ollama-agent | multi-agent-debate | tool-agent
+```
+
+(`neurocore init` remains the minimal, blank scaffold.)
+
+### Call MCP server tools
+
+The optional `neurocore-skill-mcp` package invokes
+[Model Context Protocol](https://modelcontextprotocol.io) tools from a blueprint:
+
+```bash
+pip install neurocore-skill-mcp
+neurocore mcp list-tools --command docker --args "run,-i,--rm,ghcr.io/github/github-mcp-server"
+```
+
+```yaml
+components:
+  - name: github_tool
+    type: mcp-tool
+    config:
+      transport: stdio
+      command: docker
+      args: ["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "ghcr.io/github/github-mcp-server"]
+      env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }
+      tool: create_issue
+      arguments: { owner: octocat, repo: hello-world }
+```
+
+Runtime values in the `mcp_arguments` context key are merged over `arguments`
+(runtime wins); the tool result is written to `mcp_result`.
+
+### Installable skill marketplace
+
+Skills are pip-installable capabilities discovered automatically via the
+`neurocore.skills` entry-point group:
+
+```bash
+pip install neurocore-skill-tavily neurocore-skill-qdrant
+neurocore skill list      # newly installed skills appear here
+```
+
+See [Part 9](#part-9-packaging-and-distribution) to publish your own.
+
+---
+
 ## Quick Reference
 
 ### CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `neurocore init <name>` | Scaffold a new project |
+| `neurocore init <name>` | Scaffold a blank project |
+| `neurocore new <template> <name>` | Scaffold from a template (`--list` to see them) |
 | `neurocore run <blueprint>` | Execute a blueprint |
 | `neurocore run <bp> --data K=V` | Pass initial data |
+| `neurocore run <bp> --stream` | Live progress lines (`--json` for JSONL) |
 | `neurocore run <bp> --json` | JSON output |
-| `neurocore run <bp> --verbose` | Verbose output |
-| `neurocore skill list` | List discovered skills |
-| `neurocore skill info <name>` | Show skill details |
+| `neurocore skill list` / `info <name>` | List / describe discovered skills |
 | `neurocore validate <blueprint>` | Validate without running |
+| `neurocore runs list` | List recorded runs |
+| `neurocore runs inspect <id> [--full]` | Show a run's history |
+| `neurocore runs replay <id>` | Re-execute a stored run |
+| `neurocore runs resume <id>` | Resume a suspended/failed run |
+| `neurocore runs approve <id> [--reject]` | Decide a suspended approval gate |
+| `neurocore mcp list-tools` / `call <tool>` | Inspect/call MCP server tools |
 | `neurocore --version` | Show version |
 
 ### Python API
 
 ```python
-from neurocore import Skill, SkillMeta          # Skill development
+from neurocore import Skill, AsyncSkill, SkillMeta   # Skill development
+from neurocore.llm.provider import LLMMessage, build_provider  # LLM providers
 from neurocore.runtime.executor import (
-    load_and_run,                                # High-level execution
+    load_and_run,                                # High-level execution (tracks by default)
     execute_blueprint,                           # Low-level execution
+    execute_blueprint_tracked,                   # Execution + run history
+    resume_blueprint,                            # Resume suspended/failed runs
 )
+from neurocore.persistence import build_run_store, RunStatus  # Run history
 from neurocore.config.loader import load_config  # Config loading
 from neurocore.skills.loader import discover_skills  # Skill discovery
 from neurocore.logging.setup import get_logger   # Structured logging
@@ -2381,6 +2577,9 @@ flow:
     - component: "instance-name"
       condition: "expr"         # Optional (conditional only)
       on_error: "fail"          # fail | skip | continue
+    - approval:                 # Optional human-in-the-loop gate (sugar)
+        name: "review"
+        require: true
   # OR for graph:
   nodes:
     - id: "node-id"

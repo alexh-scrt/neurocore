@@ -1,0 +1,17 @@
+name: "{{ project_name }}-rag"
+version: "1.0"
+description: "Retrieve from Qdrant, then answer grounded in the results."
+# Requires:  pip install neurocore-skill-qdrant
+components:
+  - name: retrieve
+    type: qdrant
+    config:
+      collection: "documents"
+      top_k: 5
+  - name: answer
+    type: answer
+flow:
+  type: sequential
+  steps:
+    - component: retrieve
+    - component: answer

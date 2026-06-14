@@ -1,0 +1,23 @@
+# {{ project_name }} — MCP tool-calling agent
+project:
+  name: "{{ project_name }}"
+  version: "0.1.0"
+
+llm:
+  provider: ""        # not required for raw tool calls; set to add reasoning
+
+paths:
+  skills: "skills"
+  blueprints: "blueprints"
+  data: "data"
+  logs: "logs"
+
+logging:
+  level: "INFO"
+  format: "console"
+
+persistence:
+  enabled: true
+  backend: "sqlite"
+
+skills: {}

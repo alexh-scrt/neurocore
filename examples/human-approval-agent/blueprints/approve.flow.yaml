@@ -1,0 +1,17 @@
+name: "human-approval-agent"
+version: "1.0"
+description: "Draft an action, pause for human approval, then send."
+components:
+  - name: draft
+    type: draft
+  - name: send
+    type: send
+flow:
+  type: sequential
+  steps:
+    - component: draft
+    - approval:
+        name: review
+        message: "Approve sending this action?"
+        require: true
+    - component: send

@@ -1,6 +1,6 @@
 # NeuroCore Architecture
 
-> Comprehensive architecture reference for NeuroCore v0.1.0 — a pluggable,
+> Comprehensive architecture reference for NeuroCore v0.3.0 — a pluggable,
 > YAML-driven framework for building agentic AI applications.
 
 ---
@@ -17,6 +17,7 @@
     - [5.1 Blueprint Model](#51-blueprint-model)
     - [5.2 Configuration Model](#52-configuration-model)
     - [5.3 SkillMeta](#53-skillmeta)
+    - [5.4 Persistence Model](#54-persistence-model)
   - [6. Error Hierarchy](#6-error-hierarchy)
   - [7. Configuration Flow](#7-configuration-flow)
   - [8. Config Merging](#8-config-merging)
@@ -27,6 +28,9 @@
   - [13. Plugin Architecture](#13-plugin-architecture)
   - [14. Component Interaction Matrix](#14-component-interaction-matrix)
   - [15. Key Design Decisions](#15-key-design-decisions)
+  - [16. LLM Provider Subsystem](#16-llm-provider-subsystem)
+  - [17. Persistence, Runs & Resume](#17-persistence-runs--resume)
+  - [18. Human-in-the-Loop](#18-human-in-the-loop)
 
 ---
 
@@ -127,10 +131,13 @@ graph TD
 
 | Layer | Package | Key Exports | External Dependencies |
 |-------|---------|-------------|----------------------|
-| CLI | `neurocore.cli` | `app`, `init_project`, `run_blueprint`, `skill_list`, `skill_info`, `validate_blueprint_cmd` | typer, rich |
-| Runtime | `neurocore.runtime` | `Blueprint`, `load_blueprint()`, `validate_blueprint()`, `execute_blueprint()`, `load_and_run()`, `merge_skill_config()` | flowengine |
-| Skills | `neurocore.skills` | `Skill`, `SkillMeta`, `SkillRegistry`, `discover_skills()`, `discover_directory()`, `discover_entry_points()` | flowengine |
-| Config | `neurocore.config` | `NeuroCoreConfig`, `ProjectConfig`, `PathsConfig`, `LoggingConfig`, `load_config()`, `find_project_root()` | pydantic, pyyaml, python-dotenv |
+| CLI | `neurocore.cli` | `app`, `init_project`, `new_project`, `run_blueprint`, `skill_list`/`skill_info`, `validate_blueprint_cmd`, `runs_app`, `mcp_app` | typer, rich |
+| Runtime | `neurocore.runtime` | `Blueprint`, `load_blueprint()`, `validate_blueprint()`, `execute_blueprint()`, `execute_blueprint_tracked()`, `resume_blueprint()`, `load_and_run()`, `merge_skill_config()` | flowengine |
+| Skills | `neurocore.skills` | `Skill`, `AsyncSkill`, `SkillMeta`, `SkillRegistry`, `discover_skills()`, built-in `ApprovalSkill` | flowengine |
+| LLM | `neurocore.llm` | `LLMProvider`, `AnthropicProvider`, `OpenAIProvider`, `GeminiProvider`, `LiteLLMProvider`, `MockProvider`, `build_provider()` | anthropic; openai/google-genai/litellm (optional) |
+| Persistence | `neurocore.persistence` | `RunStore`, `SQLiteRunStore`, `InMemoryRunStore`, `RunRecord`, `StepRecord`, `RunStatus`, `build_run_store()`, `checkpoint_store_for()` | _(stdlib sqlite3)_ |
+| Scaffold | `neurocore.scaffold` | `render_template()`, `render_tree()`, `TemplateSpec`, `TEMPLATES` | _(none)_ |
+| Config | `neurocore.config` | `NeuroCoreConfig`, `ProjectConfig`, `PathsConfig`, `LoggingConfig`, `LLMConfig`, `PersistenceConfig`, `load_config()`, `find_project_root()` | pydantic, pyyaml, python-dotenv |
 | Logging | `neurocore.logging` | `configure_logging()`, `get_logger()`, `reset_logging()` | structlog |
 | Foundation | `neurocore.errors` | `NeuroCoreError`, `ConfigError`, `SkillError`, `BlueprintError`, `ExecutionError` | _(none)_ |
 
@@ -275,10 +282,11 @@ classDiagram
         +consumes: list~str~
         +config_schema: dict
         +tags: list~str~
+        +requires_llm: bool
         +max_retries: int
         +retry_delay_base: float
         +retry_delay_max: float
-        +retry_on: list~str~
+        +retry_on: tuple
     }
 
     class SkillRegistry {
@@ -392,6 +400,8 @@ classDiagram
         +project: ProjectConfig
         +paths: PathsConfig
         +logging: LoggingConfig
+        +llm: LLMConfig
+        +persistence: PersistenceConfig
         +skills: dict~str, dict~
         +project_root: Path
         +resolve_path(relative_path) Path
@@ -400,6 +410,26 @@ classDiagram
         +blueprints_dir: Path
         +data_dir: Path
         +logs_dir: Path
+        +runs_db_path: Path
+    }
+
+    class LLMConfig {
+        <<Pydantic BaseModel>>
+        +provider: str = ""
+        +model: str = ""
+        +api_key: str = ""
+        +api_key_env: str = ""
+        +base_url: str = ""
+        +max_tokens: int = 8192
+        +temperature: float = 1.0
+    }
+
+    class PersistenceConfig {
+        <<Pydantic BaseModel>>
+        +enabled: bool = True
+        +backend: str = "sqlite"
+        +path: str = "runs.db"
+        +persist_step_snapshots: bool = False
     }
 
     class ProjectConfig {
@@ -440,6 +470,8 @@ classDiagram
     NeuroCoreConfig *-- ProjectConfig
     NeuroCoreConfig *-- PathsConfig
     NeuroCoreConfig *-- LoggingConfig
+    NeuroCoreConfig *-- LLMConfig
+    NeuroCoreConfig *-- PersistenceConfig
     LoggingConfig --> LogLevel
     LoggingConfig --> LogFormat
 ```
@@ -459,14 +491,83 @@ classDiagram
         +consumes: list~str~ = []
         +config_schema: dict~str, Any~ =
         +tags: list~str~ = []
+        +requires_llm: bool = False
         +max_retries: int = 0
         +retry_delay_base: float = 1.0
         +retry_delay_max: float = 60.0
-        +retry_on: list~str~ = []
+        +retry_on: tuple~type~ = ()
     }
 
-    note for SkillMeta "Immutable after creation.\nUsed for discovery, validation,\ndocumentation, config injection,\nand retry/backoff policy."
+    note for SkillMeta "Immutable after creation.\nUsed for discovery, validation,\ndocumentation, config injection,\nLLM injection (requires_llm),\nand retry/backoff policy."
 ```
+
+### 5.4 Persistence Model
+
+Every tracked run is recorded as a `RunRecord` plus an ordered list of
+`StepRecord`s via the `RunStore` interface.
+
+```mermaid
+classDiagram
+    class RunStore {
+        <<ABC>>
+        +save_run(run) str
+        +save_step(step) void
+        +load_run(run_id) RunRecord | None
+        +load_steps(run_id) list~StepRecord~
+        +list_runs(status, blueprint, limit) list~RunRecord~
+        +delete_run(run_id) void
+        +close() void
+    }
+
+    class RunRecord {
+        <<Pydantic BaseModel>>
+        +run_id: str
+        +blueprint_name: str
+        +blueprint_snapshot: dict
+        +flow_type: str
+        +status: RunStatus
+        +initial_data: dict
+        +final_context: dict | None
+        +error: str | None
+        +suspended_at_node: str | None
+        +checkpoint_id: str | None
+        +created_at / updated_at: str
+        +duration_ms: float | None
+    }
+
+    class StepRecord {
+        <<Pydantic BaseModel>>
+        +run_id: str
+        +step_index: int
+        +component: str
+        +status: StepStatus
+        +started_at: str
+        +duration_ms: float | None
+        +error: str | None
+        +output_keys: list~str~
+        +context_snapshot: dict | None
+    }
+
+    class RunStatus {
+        <<enumeration>>
+        RUNNING
+        COMPLETED
+        FAILED
+        SUSPENDED
+        CANCELLED
+    }
+
+    RunStore <|-- SQLiteRunStore
+    RunStore <|-- InMemoryRunStore
+    RunStore ..> RunRecord : stores
+    RunStore ..> StepRecord : stores
+    RunRecord --> RunStatus
+```
+
+`SQLiteRunStore` (default) persists to `<data_dir>/runs.db` using only the stdlib
+`sqlite3` module (tables: `runs`, `steps`, `checkpoints`). A `RunStore` can also
+back flowengine's `CheckpointStore` (sync suspend/resume) via
+`checkpoint_store_for()`.
 
 ---
 
@@ -788,10 +889,12 @@ flowchart TD
 | Command | Function | Module | Key Calls |
 |---------|----------|--------|-----------|
 | `neurocore init <name>` | `init_project()` | `cli/init_cmd.py` | Template rendering, directory creation |
-| `neurocore run <blueprint>` | `run_blueprint()` | `cli/run_cmd.py` | `_parse_data_args()`, `load_and_run()` |
-| `neurocore skill list` | `skill_list()` | `cli/skill_cmd.py` | `load_config()`, `discover_skills()`, Rich table |
-| `neurocore skill info <name>` | `skill_info()` | `cli/skill_cmd.py` | `load_config()`, `discover_skills()`, `health_check()` |
-| `neurocore validate <blueprint>` | `validate_blueprint_cmd()` | `cli/validate_cmd.py` | `load_blueprint()`, `load_config()`, `discover_skills()`, `validate_blueprint()` |
+| `neurocore new <template> <name>` | `new_project()` | `cli/new_cmd.py` | `scaffold.registry`, `render_tree()` |
+| `neurocore run <blueprint>` | `run_blueprint()` | `cli/run_cmd.py` | `_parse_data_args()`, `load_and_run()`, `--stream` renderer |
+| `neurocore skill list` / `info` | `skill_list()` / `skill_info()` | `cli/skill_cmd.py` | `load_config()`, `discover_skills()` |
+| `neurocore validate <blueprint>` | `validate_blueprint_cmd()` | `cli/validate_cmd.py` | `load_blueprint()`, `discover_skills()`, `validate_blueprint()` |
+| `neurocore runs list/inspect/replay/resume/approve` | `runs_app` | `cli/runs_cmd.py` | `build_run_store()`, `execute_blueprint_tracked()`, `resume_blueprint()` |
+| `neurocore mcp list-tools/call` | `mcp_app` | `cli/mcp_cmd.py` | lazy `neurocore_skill_mcp.client` |
 | `neurocore --version` | `version_callback()` | `cli/app.py` | Print `neurocore.__version__` |
 
 ---
@@ -878,10 +981,125 @@ Rows are source modules (importers). Columns are target modules (imported).
 | Skill base class | Extends `BaseComponent` | Zero-cost FlowEngine integration; inherits lifecycle |
 | Skill discovery | Directory + entry points | Local dev (directory) + pip-installable packages (entry points) |
 | Skill precedence | Entry points > directory | Installed version wins over local development copy |
-| NeuroWeave coupling | Separate skill package | NeuroCore stays LLM/memory agnostic |
-| LLM abstraction | None (skills own theirs) | NeuroCore orchestrates, doesn't opine on providers (OpenAI, Anthropic, Gemini, Ollama, etc.) |
-| Blueprint format | Standard FlowEngine YAML | No new format to learn; full FlowEngine power |
-| Async bridge | `asyncio.run()` in skill | CLI is sync, async skills bridge internally |
+| NeuroWeave coupling | Separate skill package | NeuroCore stays memory-backend agnostic |
+| LLM abstraction | `LLMProvider` protocol, injected | Skills declare `requires_llm=True`; one config picks the backend (Anthropic, OpenAI, Gemini, Ollama/vLLM/OpenAI-compatible, LiteLLM) |
+| Local-model support | `openai-compatible`/`ollama`/`vllm` reuse `OpenAIProvider` | All speak the OpenAI wire format → one implementation, no extra deps |
+| Persistence | `RunStore` interface, SQLite default | Durable run history without new deps; pluggable (Postgres/S3 later) |
+| Checkpoint vs run | Separate `CheckpointStore` (transient) and `RunStore` (durable) | Different lifecycles; a RunStore can back a CheckpointStore for the sync path |
+| Resume semantics | Async/DAG path re-runs from `completed_nodes`; sync path uses flowengine resume | Re-execute the suspended/failed step; skip what already finished |
+| Human-in-the-loop | Built-in `ApprovalSkill` (async) + `approval:` sugar | Async forces the neurocore executor, which re-runs the gate with the decision |
+| MCP | Optional `neurocore-skill-mcp` package | Keeps the `mcp` SDK out of core; discovered like any skill |
+| Templates | Full project trees + registry | `neurocore new` scaffolds runnable starters; `init` stays the blank scaffold |
+| Blueprint format | Standard FlowEngine YAML + `approval:` sugar | No new format to learn; full FlowEngine power |
+| Async bridge | `asyncio.run()` in executor | CLI is sync; async skills run on the event loop |
 | Type validation | `validate_types=False` | Components are pre-built by executor, not loaded by FlowEngine |
 | Config merging | Shallow dict merge | Blueprint overlay wins; simple, predictable, debuggable |
 | Lazy CLI imports | Inside function bodies | Fast `neurocore --help` startup; heavy modules loaded on demand |
+
+---
+
+## 16. LLM Provider Subsystem
+
+Skills declare `requires_llm=True`; the executor builds a provider from the
+merged config and injects it as `self.llm`. Providers implement the
+`LLMProvider` protocol (`provider_name`, `model`, async `complete()`,
+async-generator `stream()`).
+
+```mermaid
+graph TD
+    Cfg["neurocore.yaml llm:<br/>provider, model, base_url, api_key_env"] --> GSC["get_skill_config()<br/>resolves api_key_env →<br/>llm_provider/model/api_key/base_url"]
+    GSC --> BP["build_provider(config)"]
+    BP -->|anthropic| AP[AnthropicProvider]
+    BP -->|openai| OP[OpenAIProvider]
+    BP -->|"openai-compatible / ollama / vllm"| OPC["OpenAIProvider(base_url=...)"]
+    BP -->|litellm| LL[LiteLLMProvider]
+    BP -->|gemini| GP[GeminiProvider]
+    BP -->|mock| MP[MockProvider]
+    AP & OP & OPC & LL & GP & MP --> INJ["skill.llm (injected when requires_llm)"]
+```
+
+| `provider` | Class | Install | Notes |
+|------------|-------|---------|-------|
+| `anthropic` | `AnthropicProvider` | core | default `claude-sonnet-4-6` |
+| `openai` | `OpenAIProvider` | `[openai]` | optional `base_url` |
+| `openai-compatible` / `ollama` / `vllm` | `OpenAIProvider` | `[local]` | OpenAI wire format; `ollama`/`vllm` have default base URLs |
+| `litellm` | `LiteLLMProvider` | `[litellm]` | routes by `model` |
+| `gemini` | `GeminiProvider` | `[gemini]` | |
+| `mock` | `MockProvider` | core | tests |
+
+`api_key_env` is resolved from the environment at config-load time, keeping
+providers env-agnostic and testable. See [docs/providers.md](docs/providers.md).
+
+---
+
+## 17. Persistence, Runs & Resume
+
+`execute_blueprint_tracked()` wraps execution: it writes a `RUNNING` `RunRecord`,
+records a `StepRecord` per step (and appends to `metadata.completed_nodes`), then
+finalizes the run as `COMPLETED`, `FAILED`, or `SUSPENDED`.
+
+```mermaid
+sequenceDiagram
+    participant CLI as neurocore run / runs
+    participant Tracked as execute_blueprint_tracked
+    participant Store as RunStore (SQLite)
+    participant Exec as execute_blueprint
+    participant Resume as resume_blueprint
+
+    CLI->>Tracked: blueprint, registry, config
+    Tracked->>Store: save_run(RUNNING)
+    Tracked->>Exec: run (tracker threaded through async/DAG/sync paths)
+    loop each step
+        Exec->>Store: save_step(...) + completed_nodes.append
+    end
+    alt skill suspends (approval gate)
+        Exec-->>Tracked: context.metadata.suspended
+        Tracked->>Store: save_run(SUSPENDED, final_context)
+    else error
+        Tracked->>Store: save_run(FAILED, error)
+    else ok
+        Tracked->>Store: save_run(COMPLETED, final_context)
+    end
+
+    Note over CLI,Resume: later — neurocore runs resume/approve <id>
+    CLI->>Resume: run_id, resume_data
+    Resume->>Store: load_run + load (FlowContext.from_dict)
+    Resume->>Exec: re-run, skipping completed_nodes
+    Resume->>Store: save_run(COMPLETED/FAILED)
+```
+
+- **Replay** (`runs replay`) re-executes from the stored `initial_data` as a new
+  run. **Resume** (`runs resume`/`approve`) continues a `suspended`/`failed` run,
+  skipping `completed_nodes`.
+- The async/sequential and DAG paths persist `final_context` (a full
+  `FlowContext.to_dict()`) as the checkpoint; the sync FlowEngine path uses a
+  flowengine `Checkpoint` (linked via `RunRecord.checkpoint_id`).
+
+See [docs/persistence-and-runs.md](docs/persistence-and-runs.md).
+
+---
+
+## 18. Human-in-the-Loop
+
+The built-in `ApprovalSkill` (an `AsyncSkill`, always registered) suspends a run
+until a human decides. The `approval:` blueprint step desugars to it during
+`load_blueprint()`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running
+    Running --> Suspended : ApprovalSkill calls context.suspend()
+    Suspended --> Approved : runs approve <id>
+    Suspended --> Rejected : runs approve <id> --reject
+    Approved --> Running : resume re-runs the gate with resume_data
+    Rejected --> Failed : require=true → ExecutionError
+    Running --> Completed
+    Completed --> [*]
+    Failed --> [*]
+```
+
+Because the skill is async, any blueprint containing it runs through NeuroCore's
+own executor — which re-executes the suspended node with the injected
+`resume_data` on resume, so the gate actually consumes the decision (flowengine's
+sync sequential resume skips the suspended node). See
+[docs/human-in-the-loop.md](docs/human-in-the-loop.md).

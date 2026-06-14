@@ -47,7 +47,9 @@ class LLMProvider(Protocol):
         **kwargs: Any,
     ) -> LLMResponse: ...
 
-    async def stream(
+    # Declared as a plain method returning an AsyncIterator (not ``async def``)
+    # so concrete async-generator implementations structurally satisfy it.
+    def stream(
         self,
         messages: list[LLMMessage],
         *,
@@ -126,17 +128,34 @@ class AnthropicProvider:
 
 
 class OpenAIProvider:
-    """OpenAI provider using the openai SDK."""
+    """OpenAI provider using the openai SDK.
 
-    def __init__(self, api_key: str, model: str = "gpt-4o") -> None:
+    Also serves every OpenAI-compatible gateway (Ollama, vLLM, LM Studio,
+    LocalAI, Together, Groq, Fireworks, OpenRouter, custom gateways) by
+    passing ``base_url``. ``provider_name`` reflects the configured backend
+    so traces and ``requires_llm`` skills report the real provider.
+    """
+
+    def __init__(
+        self,
+        api_key: str = "",
+        model: str = "gpt-4o",
+        *,
+        base_url: str | None = None,
+        provider_name: str = "openai",
+    ) -> None:
         import openai
 
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+        kwargs: dict[str, Any] = {"api_key": api_key or "not-needed"}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = openai.AsyncOpenAI(**kwargs)
         self._model = model
+        self._provider_name = provider_name
 
     @property
     def provider_name(self) -> str:
-        return "openai"
+        return self._provider_name
 
     @property
     def model(self) -> str:
@@ -352,13 +371,110 @@ class MockProvider:
             await asyncio.sleep(0)
 
 
+class LiteLLMProvider:
+    """Provider backed by LiteLLM, routing to 100+ model APIs.
+
+    Install: pip install "neurocore-ai[litellm]"
+    """
+
+    def __init__(
+        self, api_key: str = "", model: str = "", *, base_url: str | None = None
+    ) -> None:
+        import litellm  # noqa: F401  (validate availability eagerly)
+
+        self._api_key = api_key or None
+        self._model = model
+        self._base_url = base_url
+
+    @property
+    def provider_name(self) -> str:
+        return "litellm"
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def _build_messages(
+        self, messages: list[LLMMessage], system: str | None
+    ) -> list[dict[str, str]]:
+        api_messages: list[dict[str, str]] = []
+        if system:
+            api_messages.append({"role": "system", "content": system})
+        api_messages.extend({"role": m.role, "content": m.content} for m in messages)
+        return api_messages
+
+    async def complete(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 8192,
+        temperature: float = 1.0,
+        system: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        import litellm
+
+        response = await litellm.acompletion(
+            model=self._model,
+            messages=self._build_messages(messages, system),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            api_key=self._api_key,
+            base_url=self._base_url,
+        )
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        usage = getattr(response, "usage", None)
+        return LLMResponse(
+            content=content,
+            model=self._model,
+            input_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
+            output_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+        )
+
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 8192,
+        temperature: float = 1.0,
+        system: str | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        import litellm
+
+        stream = await litellm.acompletion(
+            model=self._model,
+            messages=self._build_messages(messages, system),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            api_key=self._api_key,
+            base_url=self._base_url,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                yield delta
+
+
+# OpenAI-compatible aliases that ship with sensible default endpoints.
+_OPENAI_COMPATIBLE_DEFAULT_BASE_URLS: dict[str, str] = {
+    "ollama": "http://localhost:11434/v1",
+    "vllm": "http://localhost:8000/v1",
+}
+
+
 def build_provider(config: dict[str, Any]) -> LLMProvider | None:
     """Build an LLMProvider from a config dict.
 
     Keys read:
-        llm_provider: "anthropic" | "openai" | "mock" (required to build)
+        llm_provider: provider name (required to build). One of
+                      anthropic | openai | openai-compatible | ollama |
+                      vllm | litellm | gemini | mock.
         llm_model:    model identifier (optional, uses provider default)
-        llm_api_key:  API key (optional for mock)
+        llm_api_key:  API key (optional for mock/local gateways)
+        llm_base_url: endpoint for openai-compatible/ollama/vllm/litellm
 
     Returns None if llm_provider is not set.
     """
@@ -367,15 +483,31 @@ def build_provider(config: dict[str, Any]) -> LLMProvider | None:
         return None
     model = config.get("llm_model", "")
     api_key = config.get("llm_api_key", "")
+    base_url = config.get("llm_base_url") or None
     if provider_name == "anthropic":
         return AnthropicProvider(api_key=api_key, model=model or "claude-sonnet-4-6")
     if provider_name == "openai":
-        return OpenAIProvider(api_key=api_key, model=model or "gpt-4o")
+        return OpenAIProvider(api_key=api_key, model=model or "gpt-4o", base_url=base_url)
+    if provider_name in ("openai-compatible", "ollama", "vllm"):
+        resolved = base_url or _OPENAI_COMPATIBLE_DEFAULT_BASE_URLS.get(provider_name)
+        if not resolved:
+            raise ValueError(
+                f"Provider {provider_name!r} requires a base_url. "
+                f"Set llm.base_url in neurocore.yaml (e.g. http://localhost:11434/v1)."
+            )
+        return OpenAIProvider(
+            api_key=api_key,
+            model=model,
+            base_url=resolved,
+            provider_name=provider_name,
+        )
+    if provider_name == "litellm":
+        return LiteLLMProvider(api_key=api_key, model=model, base_url=base_url)
     if provider_name == "gemini":
         return GeminiProvider(api_key=api_key, model=model or "gemini-2.0-flash")
     if provider_name == "mock":
         return MockProvider(model=model or "mock-model")
     raise ValueError(
-        f"Unknown llm_provider: {provider_name!r}. "
-        f"Expected: anthropic | openai | gemini | mock"
+        f"Unknown llm_provider: {provider_name!r}. Expected: anthropic | openai | "
+        f"openai-compatible | ollama | vllm | litellm | gemini | mock"
     )

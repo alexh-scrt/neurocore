@@ -1,8 +1,66 @@
 # NeuroCore
 
-**Pluggable, YAML-driven framework for building agentic AI applications.**
+**Build production-ready agentic AI apps from YAML blueprints and reusable Python skills.**
 
-**NeuroCore** is the _chassis_ for agentic AI. It wires together workflow orchestration, discoverable skills, structured configuration, and a developer-friendly CLI — so you can focus on building intelligent agents, not plumbing.
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/pypi/v/neurocore-ai.svg)](https://pypi.org/project/neurocore-ai/)
+[![mypy: strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy.readthedocs.io/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-orange.svg)](https://github.com/astral-sh/ruff)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-readthedocs-blue.svg)](https://neurocore.readthedocs.io)
+
+> **LangGraph helps you design agent graphs. NeuroCore helps you ship agent applications.**
+
+NeuroCore is the application *chassis* for agentic AI: YAML workflows, installable
+skills, LLM provider injection (cloud **and** local), durable run history with
+resume/replay, human-approval gates, MCP tool-calling, and a batteries-included CLI.
+
+## Ship an agent in five minutes
+
+```bash
+pip install neurocore-ai
+neurocore new research-agent my-agent
+cd my-agent
+pip install neurocore-skill-tavily neurocore-skill-arxiv
+export ANTHROPIC_API_KEY=sk-...  TAVILY_API_KEY=tvly-...
+neurocore run blueprints/research.flow.yaml --data query="latest progress on the Riemann hypothesis"
+```
+
+Prefer a **local** model? No cloud key required:
+
+```bash
+neurocore new ollama-agent local && cd local
+pip install "neurocore-ai[local]"
+ollama serve & ; ollama pull llama3.2
+neurocore run blueprints/chat.flow.yaml --data query="Explain the CAP theorem."
+```
+
+Every run is recorded — inspect, replay, or resume it:
+
+```bash
+neurocore runs list
+neurocore runs inspect <run_id> --full
+neurocore runs replay <run_id>
+```
+
+NeuroCore gives you:
+
+- **YAML-defined workflows** — sequential, conditional, and concurrent DAG flows
+- **Reusable skills** — `pip install neurocore-skill-*` and they're auto-discovered
+- **LLM provider injection** — Anthropic, OpenAI, Gemini, **Ollama / vLLM / any OpenAI-compatible**, and LiteLLM
+- **Durable run history** — SQLite-backed runs with `list` / `inspect` / `replay` / `resume`
+- **Human-in-the-loop** — `approval:` gates that suspend a run for sign-off
+- **MCP tool-calling** — invoke Model Context Protocol server tools from a blueprint
+- **Streaming events**, retries/backoff, structured logging, and template scaffolding
+
+## NeuroCore vs LangGraph
+
+LangGraph is excellent for explicit graph/state-machine orchestration. NeuroCore
+is a higher-level *application chassis* — YAML blueprints, discoverable skills,
+config/provider injection, CLI scaffolding, run history, and packageable skill
+plugins. They're complementary: you can wrap a LangGraph graph as a NeuroCore
+skill when you need graph-specific control. See
+[docs/why-not-langgraph.md](docs/why-not-langgraph.md).
 
 ## Architecture
 
@@ -38,13 +96,17 @@
 - **YAML-driven configuration** — `neurocore.yaml` with `.env` overlay and env var overrides
 - **Skill system** — extend `Skill` or `AsyncSkill` (FlowEngine `BaseComponent` with metadata), discoverable via directory scan or `pyproject.toml` entry points
 - **Async-first execution** — `AsyncSkill` for non-blocking I/O, concurrent DAG execution with `asyncio.gather()`
-- **Streaming execution** — real-time `FlowEvent` stream via `execute_blueprint_stream()`
-- **LLM provider protocol** — pluggable `LLMProvider` with Anthropic, OpenAI, Gemini, and mock backends; automatic injection via `requires_llm=True`
-- **Retry & backoff** — automatic exponential backoff with full jitter on skill failures via `SkillMeta` fields (`max_retries`, `retry_delay_base`, `retry_delay_max`, `retry_on`)
-- **Blueprint execution** — standard FlowEngine YAML flows with skill-aware resolution, sync and async
+- **Streaming execution** — real-time `FlowEvent` stream; `neurocore run --stream` renders live progress
+- **LLM provider injection** — `LLMProvider` with Anthropic, OpenAI, Gemini, **Ollama / vLLM / OpenAI-compatible**, **LiteLLM**, and mock backends; auto-injected via `requires_llm=True`
+- **Durable run history** — pluggable `RunStore` (SQLite default) recording every run + step; `neurocore runs list/inspect/replay/resume`
+- **Resume & replay** — restart a failed run from the failed step, or replay from original inputs
+- **Human-in-the-loop** — built-in `approval` skill + `approval:` blueprint sugar that suspends a run for sign-off (`neurocore runs approve`)
+- **MCP tool-calling** — `neurocore-skill-mcp` invokes Model Context Protocol server tools; `neurocore mcp list-tools`
+- **Template scaffolding** — `neurocore new <rag-agent|research-agent|ollama-agent|multi-agent-debate|tool-agent> <name>`
+- **Retry & backoff** — exponential backoff with full jitter via `SkillMeta` (`max_retries`, `retry_delay_base`, `retry_delay_max`, `retry_on`)
+- **Installable skill marketplace** — `pip install neurocore-skill-*`, auto-discovered via the `neurocore.skills` entry-point group
 - **Structured logging** — `structlog` with console (dev) and JSON (production) modes
-- **CLI** — `neurocore init`, `run`, `skill list/info`, `validate`, `version` (with `--stream` support)
-- **14 AC1 research skills** — arXiv, OpenAlex, Semantic Scholar, Tavily, Exa, CORE, Unpaywall, Qdrant, GROBID, Lean4, SageMath, SymPy, OEIS, Gemini Auditor
+- **CLI** — `init`, `new`, `run`, `skill`, `validate`, `runs`, `mcp`, `version`
 
 ---
 

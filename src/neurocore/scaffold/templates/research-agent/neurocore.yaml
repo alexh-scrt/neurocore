@@ -1,0 +1,27 @@
+# {{ project_name }} — multi-source research agent
+project:
+  name: "{{ project_name }}"
+  version: "0.1.0"
+
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4-6"
+  api_key_env: "ANTHROPIC_API_KEY"
+
+paths:
+  skills: "skills"
+  blueprints: "blueprints"
+  data: "data"
+  logs: "logs"
+
+logging:
+  level: "INFO"
+  format: "console"
+
+persistence:
+  enabled: true
+  backend: "sqlite"
+
+skills:
+  tavily:
+    api_key_env: "TAVILY_API_KEY"

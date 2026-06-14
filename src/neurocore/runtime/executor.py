@@ -30,8 +30,10 @@ import random
 import time
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from flowengine import (
     ComponentConfig,
@@ -47,12 +49,58 @@ from neurocore.config.loader import load_config
 from neurocore.config.schema import NeuroCoreConfig
 from neurocore.errors import BlueprintError, ExecutionError
 from neurocore.logging import get_logger
+from neurocore.persistence import (
+    RunRecord,
+    RunStatus,
+    RunStore,
+    StepRecord,
+    StepStatus,
+    build_run_store,
+    checkpoint_store_for,
+)
+from neurocore.persistence.base import utcnow_iso
 from neurocore.runtime.blueprint import Blueprint, load_blueprint, validate_blueprint
 from neurocore.skills.base import Skill, is_async_skill
 from neurocore.skills.loader import discover_skills
 from neurocore.skills.registry import SkillRegistry
 
 log = get_logger("executor")
+
+
+@dataclass
+class _Tracker:
+    """Records step-level history for a run during async execution."""
+
+    store: RunStore
+    run_id: str
+    persist_snapshots: bool = False
+
+    def record_step(
+        self,
+        *,
+        step_index: int,
+        component: str,
+        skill: Skill,
+        status: StepStatus,
+        started_iso: str,
+        started_perf: float,
+        context: FlowContext,
+        error: str | None = None,
+    ) -> None:
+        self.store.save_step(
+            StepRecord(
+                run_id=self.run_id,
+                step_index=step_index,
+                component=component,
+                skill_type=skill.skill_meta.name,
+                status=status,
+                started_at=started_iso,
+                duration_ms=(time.time() - started_perf) * 1000,
+                error=error,
+                output_keys=list(skill.skill_meta.provides or []),
+                context_snapshot=context.to_dict() if self.persist_snapshots else None,
+            )
+        )
 
 
 def merge_skill_config(
@@ -265,7 +313,7 @@ async def _run_skill_async(skill: Skill, context: FlowContext) -> FlowContext:
     for attempt in range(max_retries + 1):
         try:
             if is_async_skill(skill):
-                return await skill.process(context)  # type: ignore[misc]
+                return await skill.process(context)  # type: ignore[misc, no-any-return]
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, skill.process, context)
 
@@ -312,16 +360,55 @@ async def _execute_blueprint_async(
     instances: dict[str, Skill],
     merged_configs: dict[str, dict[str, Any]],
     initial_data: dict[str, Any] | None,
+    *,
+    tracker: _Tracker | None = None,
+    base_context: FlowContext | None = None,
+    skip: set[str] | None = None,
 ) -> FlowContext:
-    """Execute a sequential/conditional blueprint asynchronously."""
-    context = FlowContext()
+    """Execute a sequential/conditional blueprint asynchronously.
+
+    Records per-step history (when ``tracker`` is set), appends each completed
+    component to ``metadata.completed_nodes``, and stops early if a skill
+    suspends the run (e.g. a human-approval gate). ``skip`` lets a resume skip
+    already-completed steps; ``base_context`` restores a prior run's state.
+    """
+    skip = skip or set()
+    context = base_context if base_context is not None else FlowContext()
     if initial_data:
         for k, v in initial_data.items():
             context.set(k, v)
     steps = _get_sequential_steps(blueprint)
-    for step in steps:
+    for idx, step in enumerate(steps):
+        if step.component in skip:
+            continue
         skill = instances[step.component]
-        context = await _run_skill_async(skill, context)
+        started_iso, started_perf = utcnow_iso(), time.time()
+        try:
+            context = await _run_skill_async(skill, context)
+        except Exception as exc:
+            if tracker is not None:
+                tracker.record_step(
+                    step_index=idx, component=step.component, skill=skill,
+                    status=StepStatus.FAILED, started_iso=started_iso,
+                    started_perf=started_perf, context=context, error=str(exc),
+                )
+            raise
+        if context.metadata.suspended:
+            if tracker is not None:
+                tracker.record_step(
+                    step_index=idx, component=step.component, skill=skill,
+                    status=StepStatus.SKIPPED, started_iso=started_iso,
+                    started_perf=started_perf, context=context,
+                )
+            break
+        if step.component not in context.metadata.completed_nodes:
+            context.metadata.completed_nodes.append(step.component)
+        if tracker is not None:
+            tracker.record_step(
+                step_index=idx, component=step.component, skill=skill,
+                status=StepStatus.COMPLETED, started_iso=started_iso,
+                started_perf=started_perf, context=context,
+            )
     return context
 
 
@@ -330,8 +417,18 @@ async def _execute_dag_concurrent(
     instances: dict[str, Skill],
     merged_configs: dict[str, dict[str, Any]],
     initial_data: dict[str, Any] | None,
+    *,
+    tracker: _Tracker | None = None,
+    base_context: FlowContext | None = None,
+    skip: set[str] | None = None,
 ) -> FlowContext:
-    """Execute a DAG blueprint with concurrent layers."""
+    """Execute a DAG blueprint with concurrent layers.
+
+    ``skip`` (node ids) lets a resume omit already-completed nodes whose outputs
+    are restored via ``base_context``. Records per-node history and stops if a
+    node suspends the run.
+    """
+    skip = skip or set()
     edges = blueprint.flow.edges or []
     nodes = blueprint.flow.nodes or []
     in_degree: dict[str, int] = {n.id: 0 for n in nodes}
@@ -362,19 +459,49 @@ async def _execute_dag_concurrent(
     node_to_component = {n.id: n.component for n in nodes}
 
     # Execute each layer concurrently
-    context = FlowContext()
+    context = base_context if base_context is not None else FlowContext()
     if initial_data:
         for k, v in initial_data.items():
             context.set(k, v)
+    step_index = 0
     for layer in layers:
-        layer_skills = [instances[node_to_component[node_id]] for node_id in layer]
-        results = await asyncio.gather(
-            *[_run_skill_async(skill, context) for skill in layer_skills]
-        )
+        pending = [node_id for node_id in layer if node_id not in skip]
+        if not pending:
+            continue
+        layer_skills = [instances[node_to_component[node_id]] for node_id in pending]
+        started_iso, started_perf = utcnow_iso(), time.time()
+        try:
+            results = await asyncio.gather(
+                *[_run_skill_async(skill, context) for skill in layer_skills]
+            )
+        except Exception as exc:
+            if tracker is not None:
+                for node_id in pending:
+                    tracker.record_step(
+                        step_index=step_index, component=node_id,
+                        skill=instances[node_to_component[node_id]],
+                        status=StepStatus.FAILED, started_iso=started_iso,
+                        started_perf=started_perf, context=context, error=str(exc),
+                    )
+                    step_index += 1
+            raise
         # Merge results into context (last write wins per key)
         for result_ctx in results:
             for key, value in result_ctx.data.items():
                 context.set(key, value)
+        for node_id in pending:
+            if node_id not in context.metadata.completed_nodes:
+                context.metadata.completed_nodes.append(node_id)
+            if tracker is not None:
+                tracker.record_step(
+                    step_index=step_index, component=node_id,
+                    skill=instances[node_to_component[node_id]],
+                    status=StepStatus.COMPLETED, started_iso=started_iso,
+                    started_perf=started_perf, context=context,
+                )
+                step_index += 1
+        if context.metadata.suspended:
+            break
 
     return context
 
@@ -389,6 +516,9 @@ def execute_blueprint(
     neurocore_config: NeuroCoreConfig,
     *,
     initial_data: dict[str, Any] | None = None,
+    _tracker: _Tracker | None = None,
+    _base_context: FlowContext | None = None,
+    _skip: set[str] | None = None,
 ) -> FlowContext:
     """Execute a blueprint. Supports both sync and async skills.
 
@@ -411,6 +541,9 @@ def execute_blueprint(
     Raises:
         BlueprintError: If validation or instantiation fails.
         ExecutionError: If execution fails.
+
+    The leading-underscore params are used internally by
+    :func:`execute_blueprint_tracked` and :func:`resume_blueprint`.
     """
     # Validate all skill references
     errors = validate_blueprint(blueprint, registry)
@@ -432,12 +565,14 @@ def execute_blueprint(
             if blueprint.flow.type == "graph" and blueprint.flow.edges:
                 return asyncio.run(
                     _execute_dag_concurrent(
-                        blueprint, skill_instances, merged_configs, initial_data
+                        blueprint, skill_instances, merged_configs, initial_data,
+                        tracker=_tracker, base_context=_base_context, skip=_skip,
                     )
                 )
             return asyncio.run(
                 _execute_blueprint_async(
-                    blueprint, skill_instances, merged_configs, initial_data
+                    blueprint, skill_instances, merged_configs, initial_data,
+                    tracker=_tracker, base_context=_base_context, skip=_skip,
                 )
             )
         except Exception as e:
@@ -447,16 +582,20 @@ def execute_blueprint(
 
     # Sync path: use FlowEngine for backward compatibility
     flow_config = _build_flow_config(blueprint, merged_configs)
+    checkpoint_store = (
+        checkpoint_store_for(_tracker.store) if _tracker is not None else None
+    )
     try:
         engine = FlowEngine(
             flow_config,
-            skill_instances,
+            skill_instances,  # type: ignore[arg-type]  # Skill is a BaseComponent
             validate_types=False,
+            checkpoint_store=checkpoint_store,
         )
     except Exception as e:
         raise ExecutionError(f"Failed to create FlowEngine: {e}") from e
 
-    context = FlowContext()
+    context = _base_context if _base_context is not None else FlowContext()
     if initial_data:
         for key, value in initial_data.items():
             context.set(key, value)
@@ -464,9 +603,227 @@ def execute_blueprint(
     try:
         result = engine.execute(context)
     except Exception as e:
+        # FlowEngine mutates `context` in place, so completed steps are recorded
+        # in its timings even on failure. Record those plus the failing step.
+        if _tracker is not None:
+            _record_sync_steps(_tracker, context, skill_instances, failed=True)
         raise ExecutionError(f"Blueprint execution failed: {e}") from e
 
+    if _tracker is not None:
+        _record_sync_steps(_tracker, result, skill_instances)
+    # FlowEngine doesn't populate completed_nodes for sequential flows; derive
+    # it from the step timings so resume/inspection behave consistently.
+    for st in result.metadata.step_timings:
+        if st.component not in result.metadata.completed_nodes:
+            result.metadata.completed_nodes.append(st.component)
+
     return result
+
+
+def _record_sync_steps(
+    tracker: _Tracker,
+    context: FlowContext,
+    skill_instances: dict[str, Skill],
+    *,
+    failed: bool = False,
+) -> None:
+    """Persist StepRecords for a FlowEngine (sync) execution from its timings.
+
+    FlowEngine records a timing for the failing step too, so the set of failed
+    components is read from ``metadata.errors`` rather than inferred.
+    """
+    failed_components = {
+        e.get("component") for e in context.metadata.errors
+    } if failed else set()
+    for st in context.metadata.step_timings:
+        skill = skill_instances.get(st.component)
+        status = (
+            StepStatus.FAILED
+            if st.component in failed_components
+            else StepStatus.COMPLETED
+        )
+        tracker.store.save_step(
+            StepRecord(
+                run_id=tracker.run_id,
+                step_index=st.step_index,
+                component=st.component,
+                skill_type=skill.skill_meta.name if skill else None,
+                status=status,
+                started_at=st.started_at.isoformat(),
+                duration_ms=st.duration * 1000,
+                output_keys=list(skill.skill_meta.provides or []) if skill else [],
+            )
+        )
+
+
+def _finalize_run(
+    store: RunStore,
+    record: RunRecord,
+    context: FlowContext,
+    started_perf: float,
+) -> None:
+    """Persist the terminal state of a run from its final context."""
+    record.final_context = context.to_dict()
+    record.duration_ms = (time.time() - started_perf) * 1000
+    record.updated_at = utcnow_iso()
+    if context.metadata.suspended:
+        record.status = RunStatus.SUSPENDED
+        record.suspended_at_node = context.metadata.suspended_at_node
+        record.suspension_reason = context.metadata.suspension_reason
+    else:
+        record.status = RunStatus.COMPLETED
+    cid = context.get("checkpoint_id")
+    if cid:
+        record.checkpoint_id = cid
+    store.save_run(record)
+
+
+def execute_blueprint_tracked(
+    blueprint: Blueprint,
+    registry: SkillRegistry,
+    neurocore_config: NeuroCoreConfig,
+    *,
+    initial_data: dict[str, Any] | None = None,
+    run_store: RunStore | None = None,
+    run_id: str | None = None,
+    blueprint_path: Path | None = None,
+) -> FlowContext:
+    """Execute a blueprint and persist a durable run record + step history.
+
+    Falls back to :func:`execute_blueprint` when persistence is disabled.
+
+    Returns:
+        The final FlowContext (may have ``metadata.suspended`` set if the run
+        paused at a human-approval gate — resume with :func:`resume_blueprint`).
+    """
+    store = run_store if run_store is not None else build_run_store(neurocore_config)
+    if store is None:
+        return execute_blueprint(
+            blueprint, registry, neurocore_config, initial_data=initial_data
+        )
+
+    rid = run_id or uuid4().hex
+    tracker = _Tracker(
+        store, rid, neurocore_config.persistence.persist_step_snapshots
+    )
+    record = RunRecord(
+        run_id=rid,
+        blueprint_name=blueprint.name,
+        blueprint_version=blueprint.version,
+        blueprint_path=str(blueprint_path) if blueprint_path else None,
+        blueprint_snapshot=blueprint.model_dump(),
+        flow_type=blueprint.flow.type,
+        status=RunStatus.RUNNING,
+        initial_data=initial_data or {},
+    )
+    store.save_run(record)
+    started_perf = time.time()
+    try:
+        context = execute_blueprint(
+            blueprint, registry, neurocore_config,
+            initial_data=initial_data, _tracker=tracker,
+        )
+    except Exception as exc:
+        record.status = RunStatus.FAILED
+        record.error = str(exc)
+        record.duration_ms = (time.time() - started_perf) * 1000
+        record.updated_at = utcnow_iso()
+        store.save_run(record)
+        raise
+    _finalize_run(store, record, context, started_perf)
+    return context
+
+
+def resume_blueprint(
+    run_id: str,
+    registry: SkillRegistry,
+    neurocore_config: NeuroCoreConfig,
+    *,
+    resume_data: dict[str, Any] | None = None,
+    run_store: RunStore | None = None,
+) -> FlowContext:
+    """Resume a suspended or failed run, optionally injecting ``resume_data``.
+
+    Suspended runs (e.g. paused at an approval gate) continue from where they
+    stopped; failed runs re-run from the failed step (completed steps are
+    skipped). Works for both the sync (flowengine checkpoint) and async/DAG
+    (restored FlowContext) execution paths.
+    """
+    store = run_store if run_store is not None else build_run_store(neurocore_config)
+    if store is None:
+        raise ExecutionError("Persistence is disabled; cannot resume runs.")
+    run = store.load_run(run_id)
+    if run is None:
+        raise ExecutionError(f"Run not found: {run_id}")
+    if run.status not in (RunStatus.SUSPENDED, RunStatus.FAILED):
+        raise ExecutionError(
+            f"Run {run_id} has status {run.status}; only suspended or failed "
+            f"runs can be resumed."
+        )
+
+    blueprint = Blueprint(**run.blueprint_snapshot)
+    tracker = _Tracker(
+        store, run_id, neurocore_config.persistence.persist_step_snapshots
+    )
+    started_perf = time.time()
+
+    # Sync path: flowengine owns the checkpoint.
+    if run.checkpoint_id:
+        skill_instances, merged_configs = _create_skill_instances(
+            blueprint, registry, neurocore_config
+        )
+        flow_config = _build_flow_config(blueprint, merged_configs)
+        engine = FlowEngine(
+            flow_config,
+            skill_instances,  # type: ignore[arg-type]  # Skill is a BaseComponent
+            validate_types=False,
+            checkpoint_store=checkpoint_store_for(store),
+        )
+        try:
+            context = engine.resume(run.checkpoint_id, resume_data)
+        except Exception as exc:
+            run.status = RunStatus.FAILED
+            run.error = str(exc)
+            run.updated_at = utcnow_iso()
+            store.save_run(run)
+            raise ExecutionError(f"Resume failed: {exc}") from exc
+        for st in context.metadata.step_timings:
+            skill = skill_instances.get(st.component)
+            store.save_step(
+                StepRecord(
+                    run_id=run_id, step_index=st.step_index, component=st.component,
+                    skill_type=skill.skill_meta.name if skill else None,
+                    status=StepStatus.COMPLETED, started_at=st.started_at.isoformat(),
+                    duration_ms=st.duration * 1000,
+                    output_keys=list(skill.skill_meta.provides or []) if skill else [],
+                )
+            )
+        run.checkpoint_id = None
+        _finalize_run(store, run, context, started_perf)
+        return context
+
+    # Async/DAG path: the stored final_context IS the checkpoint.
+    context = FlowContext.from_dict(run.final_context or {})
+    context.metadata.suspended = False
+    context.metadata.suspended_at_node = None
+    context.metadata.suspension_reason = None
+    if resume_data is not None:
+        context.set("resume_data", resume_data)
+    skip = set(context.metadata.completed_nodes)
+    try:
+        context = execute_blueprint(
+            blueprint, registry, neurocore_config,
+            _tracker=tracker, _base_context=context, _skip=skip,
+        )
+    except Exception as exc:
+        run.status = RunStatus.FAILED
+        run.error = str(exc)
+        run.updated_at = utcnow_iso()
+        store.save_run(run)
+        raise
+    run.error = None
+    _finalize_run(store, run, context, started_perf)
+    return context
 
 
 async def execute_blueprint_stream(
@@ -535,6 +892,7 @@ def load_and_run(
     *,
     project_root: Path | None = None,
     initial_data: dict[str, Any] | None = None,
+    track: bool = True,
 ) -> FlowContext:
     """High-level function: load config, discover skills, execute blueprint.
 
@@ -542,12 +900,14 @@ def load_and_run(
     1. Load neurocore.yaml config
     2. Discover all skills (directory + entry points)
     3. Load and parse the blueprint
-    4. Execute via FlowEngine
+    4. Execute via FlowEngine, persisting run history (when ``track`` and
+       persistence are enabled)
 
     Args:
         blueprint_path: Path to the blueprint YAML file.
         project_root: Optional project root (auto-detected if not provided).
         initial_data: Optional initial context data.
+        track: Persist a run record + step history (default True).
 
     Returns:
         FlowContext with execution results.
@@ -562,6 +922,14 @@ def load_and_run(
     blueprint = load_blueprint(blueprint_path)
 
     # Execute
+    if track:
+        return execute_blueprint_tracked(
+            blueprint,
+            registry,
+            neurocore_config,
+            initial_data=initial_data,
+            blueprint_path=blueprint_path,
+        )
     return execute_blueprint(
         blueprint,
         registry,

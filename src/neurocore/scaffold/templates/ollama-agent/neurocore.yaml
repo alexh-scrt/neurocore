@@ -1,0 +1,28 @@
+# {{ project_name }} — local LLM agent via Ollama
+project:
+  name: "{{ project_name }}"
+  version: "0.1.0"
+
+# Talks to a local Ollama server over its OpenAI-compatible endpoint.
+# Start Ollama first:  ollama serve  &&  ollama pull llama3.2
+llm:
+  provider: ollama            # openai-compatible alias; default base_url http://localhost:11434/v1
+  model: "llama3.2"
+  base_url: "http://localhost:11434/v1"
+  api_key_env: "OLLAMA_API_KEY"   # optional; Ollama ignores the key
+
+paths:
+  skills: "skills"
+  blueprints: "blueprints"
+  data: "data"
+  logs: "logs"
+
+logging:
+  level: "INFO"
+  format: "console"
+
+persistence:
+  enabled: true
+  backend: "sqlite"
+
+skills: {}
