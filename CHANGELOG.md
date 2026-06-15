@@ -5,6 +5,31 @@ All notable changes to NeuroCore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-06-15
+
+Realistic graph execution: NeuroCore graph flows now honor edge **ports**,
+edge **conditions**, and **cycles/`max_iterations`** by routing through
+flowengine's `GraphExecutor`. Requires `flowengine>=0.6.0`.
+
+### Added
+
+- **Edge conditions** — `FlowEdge` gains an optional `condition` (a safe Python
+  expression over `context`, e.g. `context.data.score > 0.5`). An edge activates
+  when its `port` matches AND its `condition` is True.
+- **Hybrid graph routing** — `execute_blueprint` now routes a graph flow through
+  flowengine's `GraphExecutor` whenever it uses edge ports/conditions or contains
+  a cycle (`_graph_needs_executor`); plain DAGs keep the existing concurrent
+  layer executor. The engine path runs async skills via
+  `GraphExecutor.execute_async` and records run history (steps + `completed_nodes`)
+  like the other tracked paths. This makes port-driven early-exits, conditional
+  branching, and Lean-style repair loops (e.g. the `neurocore-skill-math` proof
+  workers) actually execute as drawn.
+
+### Changed
+
+- Version bumped to 0.4.0; minimum `flowengine` raised to `>=0.6.0` (edge
+  conditions + async graph execution live there).
+
 ## [0.3.0] — 2026-06-14
 
 Turns NeuroCore from a framework into a production agent **runtime**: local-LLM

@@ -272,6 +272,7 @@ def _build_flow_config(
                     source=edge.source,
                     target=edge.target,
                     port=edge.port,
+                    condition=edge.condition,
                 )
                 for edge in blueprint.flow.edges
             ]
@@ -510,6 +511,86 @@ async def _execute_dag_concurrent(
 # Public API
 # ---------------------------------------------------------------------------
 
+def _graph_has_cycle(blueprint: Blueprint) -> bool:
+    """True if the blueprint's graph contains a cycle (Kahn's algorithm)."""
+    nodes = blueprint.flow.nodes or []
+    edges = blueprint.flow.edges or []
+    in_degree: dict[str, int] = {n.id: 0 for n in nodes}
+    adjacency: dict[str, list[str]] = defaultdict(list)
+    for edge in edges:
+        adjacency[edge.source].append(edge.target)
+        if edge.target in in_degree:
+            in_degree[edge.target] += 1
+    queue: deque[str] = deque(k for k, v in in_degree.items() if v == 0)
+    visited = 0
+    while queue:
+        nid = queue.popleft()
+        visited += 1
+        for nbr in adjacency[nid]:
+            in_degree[nbr] -= 1
+            if in_degree[nbr] == 0:
+                queue.append(nbr)
+    return visited != len(nodes)
+
+
+def _graph_needs_executor(blueprint: Blueprint) -> bool:
+    """True if a graph flow needs flowengine's GraphExecutor.
+
+    Triggers when any edge declares a ``port`` or ``condition`` (conditional
+    routing), or the graph is cyclic — features the concurrent layer executor
+    does not implement.
+    """
+    edges = blueprint.flow.edges or []
+    if any(e.port or e.condition for e in edges):
+        return True
+    return _graph_has_cycle(blueprint)
+
+
+def _execute_graph_via_engine(
+    blueprint: Blueprint,
+    instances: dict[str, Skill],
+    merged_configs: dict[str, dict[str, Any]],
+    initial_data: dict[str, Any] | None,
+    *,
+    has_async: bool,
+    tracker: _Tracker | None,
+    base_context: FlowContext | None,
+) -> FlowContext:
+    """Run a graph flow through flowengine's GraphExecutor (ports/conditions/cycles).
+
+    Uses the async executor when any skill is async (awaits coroutine ``process``),
+    else the sync executor. Records per-step history via the tracker (timings +
+    completed_nodes are populated by GraphExecutor).
+    """
+    from flowengine import GraphExecutor
+    from flowengine.eval.evaluator import ConditionEvaluator
+
+    flow_config = _build_flow_config(blueprint, merged_configs)
+    executor = GraphExecutor(
+        nodes=flow_config.flow.nodes or [],
+        edges=flow_config.flow.edges or [],
+        components=instances,  # type: ignore[arg-type]  # Skill is a BaseComponent
+        settings=flow_config.flow.settings,
+        evaluator=ConditionEvaluator(),
+    )
+    context = base_context if base_context is not None else FlowContext()
+    if initial_data:
+        for key, value in initial_data.items():
+            context.set(key, value)
+    try:
+        if has_async:
+            context = asyncio.run(executor.execute_async(context))
+        else:
+            context = executor.execute(context)
+    except Exception:
+        if tracker is not None:
+            _record_sync_steps(tracker, context, instances, failed=True)
+        raise
+    if tracker is not None:
+        _record_sync_steps(tracker, context, instances)
+    return context
+
+
 def execute_blueprint(
     blueprint: Blueprint,
     registry: SkillRegistry,
@@ -558,6 +639,24 @@ def execute_blueprint(
     )
 
     has_async = any(is_async_skill(s) for s in skill_instances.values())
+
+    # Hybrid graph routing: flows using edge ports/conditions or cycles go
+    # through flowengine's GraphExecutor (which honors them); plain DAGs keep
+    # the concurrent layer executor below.
+    if (
+        blueprint.flow.type == "graph"
+        and blueprint.flow.edges
+        and _graph_needs_executor(blueprint)
+    ):
+        try:
+            return _execute_graph_via_engine(
+                blueprint, skill_instances, merged_configs, initial_data,
+                has_async=has_async, tracker=_tracker, base_context=_base_context,
+            )
+        except Exception as e:
+            if isinstance(e, (BlueprintError, ExecutionError)):
+                raise
+            raise ExecutionError(f"Blueprint execution failed: {e}") from e
 
     if has_async or blueprint.flow.type == "graph":
         # Async path: handles async skills and DAG concurrent execution

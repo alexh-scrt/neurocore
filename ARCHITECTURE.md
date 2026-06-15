@@ -845,6 +845,20 @@ wraps the skill's `process()` call with exponential backoff:
 The delay between retries grows exponentially: `min(retry_delay_base * 2^attempt, retry_delay_max)`.
 If all retries are exhausted, the last exception propagates as an `ExecutionError`.
 
+### 11.2 Graph Execution Routing (hybrid)
+
+`graph` flows are routed by `_graph_needs_executor()`:
+
+| Graph uses… | Executor | Why |
+|-------------|----------|-----|
+| edge `port`s, edge `condition`s, or a cycle | flowengine `GraphExecutor` (`execute_async` when any skill is async) | honors port/condition gating and cyclic `max_iterations` |
+| none of the above (plain DAG) | NeuroCore `_execute_dag_concurrent` | runs independent nodes concurrently via `asyncio.gather` |
+
+Both paths populate `metadata.completed_nodes` and step timings, so run tracking,
+resume, and the `runs` CLI behave identically. Edge conditions are safe Python
+expressions over `context` (e.g. `context.data.score > 0.5`) evaluated by
+flowengine's `ConditionEvaluator`. Requires `flowengine>=0.6.0`.
+
 ---
 
 ## 12. CLI Command Flow

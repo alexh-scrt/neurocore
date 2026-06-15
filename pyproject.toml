@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neurocore-ai"
-version = "0.3.0"
+version = "0.4.0"
 description = "Pluggable, YAML-driven framework for building agentic AI applications"
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,7 +34,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "flowengine>=0.5.0",
+    "flowengine>=0.6.0",
     "pyyaml>=6.0",
     "pydantic-settings>=2.7",
     "structlog>=25.5.0",

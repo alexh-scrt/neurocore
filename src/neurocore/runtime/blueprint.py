@@ -75,11 +75,18 @@ class FlowGraph(BaseModel):
 
 
 class FlowEdge(BaseModel):
-    """Graph edge definition."""
+    """Graph edge definition.
+
+    An edge activates when its ``port`` matches the source node's active output
+    port (or ``port`` is None) AND its ``condition`` evaluates True (or is None).
+    Port/condition routing requires the flowengine GraphExecutor path — see
+    ``runtime.executor`` (flows with ports/conditions/cycles route there).
+    """
 
     source: str
     target: str
     port: str | None = None
+    condition: str | None = None
 
 
 class FlowDefinition(BaseModel):
