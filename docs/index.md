@@ -28,6 +28,8 @@ neurocore run blueprints/agent.flow.yaml
 :caption: Guides
 
 tutorial
+agent-quickstart
+agent-manual
 concepts
 architecture
 providers

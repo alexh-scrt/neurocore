@@ -53,6 +53,12 @@ NeuroCore gives you:
 - **MCP tool-calling** — invoke Model Context Protocol server tools from a blueprint
 - **Streaming events**, retries/backoff, structured logging, and template scaffolding
 
+> **Building agents *with* an AI agent?** Paste the one-page
+> [Agent Quickstart](docs/agent-quickstart.md) into your agent's prompt, or read
+> the full [Agent Manual](docs/agent-manual.md) — guides written for LLM agents on
+> constructing worker agents, designing/deploying workflows, and exchanging data
+> with them.
+
 ## NeuroCore vs LangGraph
 
 LangGraph is excellent for explicit graph/state-machine orchestration. NeuroCore
